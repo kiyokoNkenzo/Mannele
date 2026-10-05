@@ -3,7 +3,7 @@
   "short_name": "Mannele",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f6f4ef",
-  "theme_color": "#f6f4ef",
+  "background_color": "#ffffff",
+  "theme_color": "#f08a1c",
   "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
 }

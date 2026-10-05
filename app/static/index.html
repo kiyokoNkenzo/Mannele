@@ -3,64 +3,59 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mannele｜まんねれ — relationship notebook</title>
+  <title>Mannele - relationship notebook</title>
   <meta name="description" content="A private notebook for the people in your life.">
-  <meta name="theme-color" content="#f6f4ef">
+  <meta name="theme-color" content="#f08a1c">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="site-header" id="topbar" hidden>
-    <div class="utility">
-      <div class="inner">
-        <span id="today-label"></span>
-        <span class="utility-right">Private notebook ・ 個人用</span>
-      </div>
+<div id="wrap">
+  <header id="hd" hidden>
+    <div class="hd-top">
+      <a class="logo" href="#/"><span class="logo-word">Mannele</span><span class="logo-sub">まんねれ ― relationship notebook</span></a>
+      <ul class="hd-links">
+        <li id="today-label"></li>
+        <li><a href="#/settings">Settings</a></li>
+        <li><a href="#/settings">Backup</a></li>
+        <li id="logout-item" hidden><a href="#" data-action="logout">Log out</a></li>
+      </ul>
     </div>
-    <div class="masthead">
-      <div class="inner">
-        <a class="brand" href="#/">
-          <span class="hanko" aria-hidden="true">縁</span>
-          <span class="brand-text"><b>Mannele</b><small>まんねれ ・ relationship notebook</small></span>
-        </a>
-        <form class="search" id="search-form" role="search">
-          <input id="search-input" type="search" placeholder="Search…" aria-label="Search" autocomplete="off">
-          <button type="submit">Search</button>
-        </form>
-        <button class="btn primary jot" data-action="quick-jot"><span aria-hidden="true">＋</span> Jot down</button>
-      </div>
-    </div>
-    <nav class="gnav" id="nav">
-      <div class="inner">
-        <a href="#/" data-nav="home"><b>Home</b><small>ホーム</small></a>
-        <a href="#/people" data-nav="people"><b>People</b><small>人々</small></a>
-        <a href="#/web" data-nav="web"><b>Connections</b><small>相関図</small></a>
-        <a href="#/calendar" data-nav="calendar"><b>Dates</b><small>暦</small></a>
-        <a href="#/settings" data-nav="settings"><b>Settings</b><small>設定</small></a>
-      </div>
+    <nav id="gnav">
+      <ul id="nav">
+        <li data-nav="home"><a href="#/">Home</a></li>
+        <li data-nav="people"><a href="#/people">People</a></li>
+        <li data-nav="web"><a href="#/web">Relationship chart</a></li>
+        <li data-nav="calendar"><a href="#/calendar">Calendar</a></li>
+        <li data-nav="settings"><a href="#/settings">Settings</a></li>
+      </ul>
+      <form class="search" id="search-form" role="search">
+        <input id="search-input" type="search" placeholder="Search notes" aria-label="Search" autocomplete="off">
+        <button type="submit" class="btn">Search</button>
+      </form>
+      <button class="btn orange jot" data-action="quick-jot">+ Jot down</button>
     </nav>
   </header>
 
-  <main id="app" class="app inner" tabindex="-1"></main>
+  <main id="app" tabindex="-1"></main>
 
-  <footer class="site-footer" id="footer" hidden>
-    <div class="inner">
-      <span><span class="hanko sm" aria-hidden="true">縁</span> Mannele — kept on your own machine.</span>
-      <a href="#" data-action="page-top">▲ Page top</a>
-    </div>
+  <footer id="ft" hidden>
+    <p class="ft-links"><a href="#/">Home</a> | <a href="#/people">People</a> | <a href="#/calendar">Calendar</a> | <a href="#/settings">Backup &amp; settings</a> | <a href="#" data-action="page-top">Page top ▲</a></p>
+    <p class="copy">Copyright &copy; Mannele. Your data is stored only on this machine.</p>
   </footer>
+</div>
 
-  <div class="modal-backdrop" id="modal" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <button class="modal-close" data-action="close-modal" aria-label="Close">×</button>
-      <div id="modal-body"></div>
-    </div>
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <button class="modal-close" data-action="close-modal" aria-label="Close">×</button>
+    <div id="modal-body"></div>
   </div>
+</div>
 
-  <div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
-  <script src="/avatar.js"></script>
-  <script src="/app.js"></script>
+<script src="/avatar.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-/* Mannele｜まんねれ — relationship notebook */
+/* Mannele - relationship notebook (UI modelled on mid-2000s Japanese SNS / blog pages) */
 (function () {
   "use strict";
 
@@ -28,12 +28,12 @@
   const MOODS = ["great", "good", "okay", "tired", "anxious", "down"];
 
   const CIRCLES = {
-    family: { label: "Family", jp: "家族", color: "#c0703a" },
-    partner: { label: "Partner", jp: "パートナー", color: "#b5546f" },
-    friends: { label: "Friends", jp: "友人", color: "#3c6e47" },
-    work: { label: "Work", jp: "仕事", color: "#223a5e" },
-    community: { label: "Community", jp: "地域", color: "#9a7417" },
-    other: { label: "Other", jp: "その他", color: "#6b6b6b" },
+    family: { label: "Family", color: "#ef8424" },
+    partner: { label: "Partner", color: "#e5537c" },
+    friends: { label: "Friends", color: "#35a262" },
+    work: { label: "Work", color: "#3b72c6" },
+    community: { label: "Community", color: "#c49a12" },
+    other: { label: "Other", color: "#8a8a8a" },
   };
 
   const REL = {
@@ -62,11 +62,11 @@
     owner: { label: "owner", inv: "pet", group: "pet" },
   };
   const REL_GROUPS = {
-    love: { label: "Partners", color: "#b5546f" },
-    family: { label: "Family", color: "#c0703a" },
-    friend: { label: "Friends", color: "#3c6e47" },
-    work: { label: "Work / school", color: "#223a5e" },
-    pet: { label: "Pets", color: "#9a7417" },
+    love: { label: "Love", color: "#e5537c" },
+    family: { label: "Family", color: "#ef8424" },
+    friend: { label: "Friends", color: "#35a262" },
+    work: { label: "Work / school", color: "#3b72c6" },
+    pet: { label: "Pets", color: "#c49a12" },
   };
 
   const state = { today: new Date().toISOString().slice(0, 10), people: null, peopleFilter: "all", peopleSort: "name", memFilter: "all" };
@@ -101,11 +101,11 @@
   // ------------------------------------------------------------------
   const parseAv = (a) => { try { return typeof a === "string" ? JSON.parse(a || "{}") : a || {}; } catch (_) { return {}; } };
   const dname = (p) => p.nickname || p.name || "";
-  const avatar = (p, size = "sm") =>
-    `<span class="av ${size}">${Avatar.render(parseAv(p.avatar), (p.id || "") + ":" + (p.name || p.nickname || ""), { title: dname(p) })}</span>`;
+  /** Square "profile photo" in a thin frame, as on mid-2000s Japanese SNS pages. */
+  const photo = (p, size = 50, extra = "") =>
+    `<span class="photo s${size} ${extra}">${Avatar.render(parseAv(p.avatar), (p.id || "") + ":" + (p.name || p.nickname || ""), { title: dname(p) })}</span>`;
 
   const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const WD_JP = ["日", "月", "火", "水", "木", "金", "土"];
   const pad = (n) => String(n).padStart(2, "0");
 
   function toDate(iso) {
@@ -113,19 +113,25 @@
     if (!m) return null;
     return new Date(m[1] === "--" ? 2000 : +m[1].slice(0, 4), +m[2] - 1, +m[3]);
   }
-  /** 2026.10.14 — or 10.14 when the year is unknown / not wanted */
-  function fmtDate(iso, withYear = true) {
+  const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  /** "10/05(Sun)" — the short date used in Japanese lists */
+  function md(iso, withDay = true) {
     const d = toDate(iso);
     if (!d) return "";
-    const md = `${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
-    return withYear && !String(iso).startsWith("--") ? `${d.getFullYear()}.${md}` : md;
+    return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}${withDay && !String(iso).startsWith("--") ? `(${WD[d.getDay()]})` : ""}`;
+  }
+  /** "2026/10/05" */
+  function ymd(iso) {
+    const d = toDate(iso);
+    if (!d) return "";
+    return String(iso).startsWith("--") ? `${pad(d.getMonth() + 1)}/${pad(d.getDate())}` : `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
   }
   function daysSince(iso) {
     const a = toDate(iso), b = toDate(state.today);
     return a && b ? Math.round((b - a) / 86400000) : null;
   }
   function ago(days) {
-    if (days == null) return "no record";
+    if (days == null) return "never";
     if (days === 0) return "today";
     if (days === 1) return "yesterday";
     if (days < 14) return `${days} days ago`;
@@ -143,22 +149,13 @@
   }
   const isNew = (created) => { const d = daysSince(created); return d != null && d <= 2; };
   const newMark = (created) => (isNew(created) ? `<span class="new">NEW</span>` : "");
-
-  function dblock(iso, days) {
-    const d = toDate(iso);
-    const cls = days === 0 ? "today" : days != null && days <= 7 ? "soon" : "";
-    return `<span class="dblock ${cls}"><b>${d ? `${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : "--"}</b><small>${d ? WD[d.getDay()] : ""}</small></span>`;
-  }
   const ordinal = (n) => n + (["th", "st", "nd", "rd"][(n % 100 - 20) % 10] || ["th", "st", "nd", "rd"][n % 100] || "th");
-  const kindTag = (k) => { const m = MEMORY_KINDS[k] || MEMORY_KINDS.note; return `<span class="tag t-${MEMORY_KINDS[k] ? k : "note"}">${m.label}</span>`; };
+  const cat = (k) => { const key = MEMORY_KINDS[k] ? k : "note"; return `<span class="cat c-${key}">${MEMORY_KINDS[key].label}</span>`; };
 
-  function eventTitle(e, withPerson = true) {
-    if (e.type === "birthday") {
-      return `${withPerson ? esc(e.person_name) + "'s birthday" : "Birthday"}${e.years ? ` <span class="muted">(turning ${e.years})</span>` : ""}`;
-    }
-    return `${esc(e.label)}${e.years ? ` <span class="muted">(${ordinal(e.years)})</span>` : ""}${withPerson ? ` <span class="muted">— ${esc(e.person_name)}</span>` : ""}`;
+  function eventText(e, withPerson = true) {
+    if (e.type === "birthday") return `${withPerson ? esc(e.person_name) + "'s birthday" : "Birthday"}${e.years ? ` (turning ${e.years})` : ""}`;
+    return `${esc(e.label)}${e.years ? ` (${ordinal(e.years)})` : ""}`;
   }
-  const eventTag = (e) => (e.type === "birthday" ? `<span class="tag t-birthday">Birthday</span>` : `<span class="tag t-date">Event</span>`);
 
   function relRole(rel, viewerId) {
     // Stored meaning: a is <kind> of b. Returns the other person and their role relative to the viewer.
@@ -166,10 +163,17 @@
     return { otherId: rel.b_id, name: rel.b_nickname || rel.b_name, avatar: rel.b_avatar, oname: rel.b_name, kind: (REL[rel.kind] || REL.friend).inv };
   }
 
-  const sec = (en, jp, right = "") => `<h2 class="sec"><span>${en}</span><span class="jp">${jp}</span>${right ? `<span class="right">${right}</span>` : ""}</h2>`;
-  const pageTitle = (en, jp, right = "") => `<div class="page-title"><h1><span class="jp">${jp}</span>${en}</h1>${right ? `<span class="spacer"></span>${right}` : ""}</div>`;
-  const crumbs = (...parts) => `<nav class="breadcrumb" aria-label="Breadcrumb"><a href="#/">Home</a>${parts.map((p) => `<span class="sep">›</span>${p}`).join("")}</nav>`;
-  const empty = (text) => `<div class="empty">${esc(text)}</div>`;
+  /** A mixi-style box: header band with a small orange square, optional count and right-side links. */
+  function box(title, body, o = {}) {
+    return `<section class="box ${o.cls || ""}"${o.id ? ` id="${o.id}"` : ""}>
+      <div class="box-h">${title}${o.n != null ? `<span class="n">(${o.n})</span>` : ""}${o.right ? `<span class="r">${o.right}</span>` : ""}</div>
+      <div class="box-b">${body}</div>
+      ${o.foot ? `<div class="box-f">${o.foot}</div>` : ""}
+    </section>`;
+  }
+  const path = (...parts) => `<p class="path"><a href="#/">Home</a>${parts.map((p) => ` &gt; ${p}`).join("")}</p>`;
+  const pagehead = (title, small = "", right = "") => `<h1 class="pagehead">${title}${small ? `<small>${small}</small>` : ""}${right ? `<span class="right">${right}</span>` : ""}</h1>`;
+  const empty = (text) => `<p class="empty">${esc(text)}</p>`;
 
   // ------------------------------------------------------------------
   // toasts, modal, confirm
@@ -184,13 +188,13 @@
 
   let modalCleanup = null;
   let lastFocus = null;
-  function openModal(html, opts = {}) {
+  function openModal(title, html, opts = {}) {
     lastFocus = document.activeElement;
-    $("#modal-body").innerHTML = html;
+    $("#modal-body").innerHTML = `<h2 id="modal-title">${title}</h2><div class="mb">${html}</div>`;
     $(".modal").classList.toggle("wide", !!opts.wide);
     $("#modal").hidden = false;
     modalCleanup = opts.onClose || null;
-    const first = $("#modal-body [autofocus]") || $("#modal-body input, #modal-body select, #modal-body textarea");
+    const first = $("#modal-body [autofocus]") || $("#modal-body input:not([type=hidden]), #modal-body select, #modal-body textarea");
     if (first) setTimeout(() => first.focus(), 30);
   }
   function closeModal() {
@@ -200,22 +204,23 @@
     modalCleanup = null;
     if (lastFocus && lastFocus.focus) lastFocus.focus();
   }
-  const modalHead = (en, jp) => `<h2 id="modal-title">${en}<span class="jp">${jp}</span></h2>`;
-  const modalActions = (save = "Save") => `
-    <div class="modal-actions">
+  const submitRow = (label = "Save") => `
+    <div class="submit-row">
       <button type="button" class="btn" data-action="close-modal">Cancel</button>
-      <button type="submit" class="btn primary">${save}</button>
+      <button type="submit" class="btn orange big">${label}</button>
     </div>`;
+  /** One row of a Japanese-style form table: shaded label cell + input cell. */
+  const frow = (label, html, req, hint) =>
+    `<tr><th>${label}${req ? `<span class="req">Required</span>` : ""}</th><td>${html}${hint ? `<span class="hint">${hint}</span>` : ""}</td></tr>`;
 
   function confirmBox(title, text, okLabel = "Delete") {
     return new Promise((resolve) => {
       let answered = false;
-      openModal(`
-        ${modalHead(esc(title), "確認")}
-        <p class="lead">${esc(text)}</p>
-        <div class="modal-actions">
+      openModal(esc(title), `
+        <p>${esc(text)}</p>
+        <div class="submit-row">
           <button class="btn" data-action="confirm-no">Cancel</button>
-          <button class="btn primary" data-action="confirm-yes" autofocus>${esc(okLabel)}</button>
+          <button class="btn orange big" data-action="confirm-yes" autofocus>${esc(okLabel)}</button>
         </div>`, { onClose: () => { if (!answered) resolve(false); } });
       actions["confirm-yes"] = () => { answered = true; closeModal(); resolve(true); };
       actions["confirm-no"] = () => { answered = true; closeModal(); resolve(false); };
@@ -223,86 +228,101 @@
   }
 
   // ------------------------------------------------------------------
-  // views
+  // shared widgets
   // ------------------------------------------------------------------
   const app = () => $("#app");
-  const loading = () => { app().innerHTML = `<div class="loading">Loading…</div>`; };
+  const loading = () => { app().innerHTML = `<p class="loading">Loading...</p>`; };
+
+  /** Blog-sidebar style mini calendar: Sunday red, Saturday blue, event days filled orange. */
+  function miniCal(events) {
+    const t = toDate(state.today);
+    const y = t.getFullYear(), m = t.getMonth();
+    const first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
+    const byDay = {};
+    events.forEach((e) => { const d = toDate(e.date); if (d.getFullYear() === y && d.getMonth() === m) (byDay[d.getDate()] = byDay[d.getDate()] || []).push(e); });
+    let cells = "", row = "";
+    for (let i = 0; i < first.getDay(); i++) row += "<td></td>";
+    for (let d = 1; d <= days; d++) {
+      const wd = (first.getDay() + d - 1) % 7;
+      const cls = [wd === 0 ? "su" : wd === 6 ? "sa" : "", byDay[d] ? "ev" : "", d === t.getDate() ? "today" : ""].join(" ");
+      const title = byDay[d] ? byDay[d].map((e) => (e.type === "birthday" ? `${e.person_name}'s birthday` : `${e.label} (${e.person_name})`)).join(", ") : "";
+      row += `<td class="${cls}">${byDay[d] ? `<a href="#/calendar" title="${esc(title)}">${d}</a>` : d}</td>`;
+      if (wd === 6) { cells += `<tr>${row}</tr>`; row = ""; }
+    }
+    if (row) cells += `<tr>${row}</tr>`;
+    return `<table class="cal"><caption>${y}/${pad(m + 1)}</caption>
+      <tr>${WD.map((w, i) => `<th class="${i === 0 ? "su" : i === 6 ? "sa" : ""}">${w.slice(0, 2)}</th>`).join("")}</tr>${cells}</table>`;
+  }
 
   // ---------- Home ----------
   async function viewHome() {
-    const d = await api("GET", "/api/dashboard");
+    const [d, people] = await Promise.all([api("GET", "/api/dashboard"), getPeople(true)]);
 
     if (!d.counts.people) {
       app().innerHTML = `
-        <div class="center-box">
-          <span class="hanko">縁</span>
-          <h1>Welcome to Mannele</h1>
-          <p>A private notebook for the people in your life: what they're into, what they're going through, the dates that matter to them and what you last talked about. Everything stays on your own machine.</p>
-          <div class="btns">
-            <button class="btn primary arrow" data-action="new-person">Add the first person</button>
+        <div class="center">${box("Welcome to Mannele", `
+          <span class="logo-word">Mannele</span>
+          <p>A private notebook for the people in your life: what they're into, what they're going through, the dates that matter to them, and what you talked about last time.</p>
+          <p class="st">Everything is stored on this machine only.</p>
+          <div class="submit-row">
+            <button class="btn orange big" data-action="new-person">Add the first person</button>
             <button class="btn" data-action="seed-demo">Load example people</button>
-          </div>
-        </div>`;
+          </div>`)}</div>`;
       return;
     }
 
-    const upcoming = d.upcoming.slice(0, 8).map((e) => `
-      <li><a class="item" href="#/person/${e.person_id}">${dblock(e.date, e.days)}${eventTag(e)}
-        <div class="body"><div class="title">${eventTitle(e)}</div><div class="meta">${until(e.days)}</div></div></a></li>`).join("");
+    // left column — friend grid + groups
+    const grid = people.slice().sort((a, b) => b.favorite - a.favorite || (a.days_since_contact ?? 1e9) - (b.days_since_contact ?? 1e9)).slice(0, 9)
+      .map((p) => `<a href="#/person/${p.id}">${photo(p, 50)}${esc(dname(p))}<span style="white-space:nowrap">(${p.memory_count})</span></a>`).join("");
+    const groups = {};
+    people.forEach((p) => { groups[p.circle] = (groups[p.circle] || 0) + 1; });
+    const groupList = Object.entries(CIRCLES).filter(([k]) => groups[k])
+      .map(([k, c]) => `<li><a href="#/people/${k}">${c.label}</a> (${groups[k]})</li>`).join("");
 
-    const problems = d.open_problems.map((m) => `
-      <li><a class="item" href="#/person/${m.person_id}"><span class="date">${fmtDate(m.created_at)}</span>${kindTag("problem")}
-        <div class="body"><div class="title">${esc(m.text)}${newMark(m.created_at)}</div><div class="meta">${esc(m.nickname || m.name)}</div></div></a></li>`).join("");
+    // notices
+    const notices = [];
+    d.upcoming.filter((e) => e.days <= 14).forEach((e) => {
+      notices.push(`<li><a href="#/person/${e.person_id}">${eventText(e)}</a> is ${e.days === 0 ? "today!" : `on ${md(e.date)} (${until(e.days)})`}</li>`);
+    });
+    if (d.overdue.length) notices.push(`<li>There ${d.overdue.length === 1 ? "is 1 person" : `are ${d.overdue.length} people`} you haven't talked to in a while.</li>`);
 
-    const followups = d.follow_ups.map((i) => `
-      <li><a class="item" href="#/person/${i.person_id}"><span class="date">${fmtDate(i.date)}</span>
-        <div class="body"><div class="title">${esc(i.follow_up)}</div><div class="meta">${esc(i.nickname || i.name)} · from a ${esc((MODES[i.mode] || MODES.chat).toLowerCase())}</div></div></a></li>`).join("");
+    const li = (date, text, who, href, extra = "") => `<li><span class="d">${date}</span><span class="t"><a href="${href}">${text}</a>${who ? ` <span class="who">(${esc(who)})</span>` : ""}${extra}</span></li>`;
+    const upcoming = d.upcoming.slice(0, 8).map((e) => `<li><span class="d">${md(e.date)}</span><span class="t"><a href="#/person/${e.person_id}">${eventText(e, false)}</a> <span class="who">(${esc(e.person_name)})</span></span><span class="x ${e.days <= 7 ? "soon" : ""}">${until(e.days)}</span></li>`).join("");
+    const problems = d.open_problems.map((m) => li(md(m.created_at), esc(m.text), m.nickname || m.name, `#/person/${m.person_id}`, newMark(m.created_at))).join("");
+    const follow = d.follow_ups.map((i) => li(md(i.date), esc(i.follow_up), i.nickname || i.name, `#/person/${i.person_id}`)).join("");
+    const recent = d.recent.map((i) => li(md(i.date), esc(i.topics || MODES[i.mode] || "Conversation"), i.nickname || i.name, `#/person/${i.person_id}`, newMark(i.date))).join("");
 
-    const recent = d.recent.map((i) => `
-      <li><a class="item" href="#/person/${i.person_id}"><span class="date">${fmtDate(i.date)}</span>
-        <div class="body"><div class="title">${esc(i.topics || MODES[i.mode] || "Conversation")}</div>
-        <div class="meta">${esc(i.nickname || i.name)} · ${esc(MODES[i.mode] || "Chat")}${i.mood ? " · " + esc(i.mood) : ""}</div></div></a></li>`).join("");
-
-    const overdue = d.overdue.map((p) => `
-      <li><div class="item">${avatar(p, "sm")}
-        <a class="body" href="#/person/${p.id}" style="color:inherit"><div class="title">${esc(dname(p))}</div>
-        <div class="meta">${p.days_since_contact == null ? "No conversations logged" : "Last talked " + ago(p.days_since_contact)}</div></a>
-        <button class="btn sm" data-action="log-chat" data-person="${p.id}">Log</button></div></li>`).join("");
-
-    const gifts = d.gift_ideas.map((m) => `
-      <li><a class="item" href="#/person/${m.person_id}">
-        <div class="body"><div class="title">${esc(m.text)}</div><div class="meta">for ${esc(m.nickname || m.name)}</div></div></a></li>`).join("");
+    const overdue = d.overdue.map((p) => `<li style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px dotted var(--dotted)">
+        <a href="#/person/${p.id}">${photo(p, 34)}</a>
+        <span style="flex:1;min-width:0"><a href="#/person/${p.id}">${esc(dname(p))}</a><br><span class="st">last: ${p.days_since_contact == null ? "never" : ago(p.days_since_contact)}</span></span>
+        <a href="#" data-action="log-chat" data-person="${p.id}" style="font-size:11px">Log</a></li>`).join("");
+    const gifts = d.gift_ideas.map((m) => `<li><a href="#/person/${m.person_id}">${esc(m.text)}</a> <span class="who">(for ${esc(m.nickname || m.name)})</span></li>`).join("");
 
     app().innerHTML = `
-      ${pageTitle("Home", "ホーム", `<span class="muted num">Updated ${fmtDate(state.today)}</span>`)}
-      <div class="stats">
-        <div class="stat"><small>People ・ 人</small><b>${d.counts.people}</b></div>
-        <div class="stat"><small>Notes ・ 覚え書き</small><b>${d.counts.memories}</b></div>
-        <div class="stat"><small>Conversations ・ 会話</small><b>${d.counts.interactions}</b></div>
-        <div class="stat"><small>Connections ・ 相関</small><b>${d.counts.relationships}</b></div>
-      </div>
-      <div class="layout">
-        <div class="stack">
-          <section class="panel">${sec("Upcoming", "近日の予定", `<a class="more" href="#/calendar">All dates</a>`)}
-            ${upcoming ? `<ul class="list">${upcoming}</ul>` : empty("Nothing in the next few weeks.")}</section>
-          <section class="panel">${sec("Check in on", "気がかり", `<span class="count">${d.open_problems.length} open</span>`)}
-            ${problems ? `<ul class="list">${problems}</ul>` : empty("No open worries recorded.")}</section>
-          <section class="panel">${sec("Ask next time", "次に聞くこと")}
-            ${followups ? `<ul class="list">${followups}</ul>` : empty("No pending follow-ups.")}</section>
-          <section class="panel">${sec("Recent conversations", "最近の会話")}
-            ${recent ? `<ul class="list">${recent}</ul>` : empty("No conversations logged yet.")}</section>
+      <div class="cols three">
+        <div class="col">
+          ${box("People", `<div class="pgrid">${grid}</div>`, { n: people.length, foot: `<a class="more" href="#/people">All people</a>` })}
+          ${box("Groups", `<ul class="blist">${groupList}</ul>`)}
+          ${box("Totals", `<ul class="blist"><li>Notes: ${d.counts.memories}</li><li>Conversations: ${d.counts.interactions}</li><li>Connections: ${d.counts.relationships}</li></ul>`)}
         </div>
-        <aside class="stack">
-          <section class="panel">${sec("Been a while", "ご無沙汰")}
-            ${overdue ? `<ul class="list">${overdue}</ul>` : empty("You're up to date with everyone.")}</section>
-          <section class="panel">${sec("Gift ideas", "贈り物メモ", `<button class="btn text" data-action="refresh">Shuffle</button>`)}
-            ${gifts ? `<ul class="list">${gifts}</ul>` : empty("No gift ideas saved.")}</section>
-        </aside>
+        <div class="col">
+          ${notices.length ? `<ul class="notice">${notices.join("")}</ul>` : ""}
+          ${box("Upcoming dates", upcoming ? `<ul class="dl">${upcoming}</ul>` : empty("Nothing coming up."), { foot: `<a class="more" href="#/calendar">Calendar</a>` })}
+          ${box("Check in on", problems ? `<ul class="dl">${problems}</ul>` : empty("No open worries."), { n: d.open_problems.length })}
+          ${box("Ask next time", follow ? `<ul class="dl">${follow}</ul>` : empty("No follow-ups."))}
+          ${box("Recent conversations", recent ? `<ul class="dl">${recent}</ul>` : empty("No conversations logged yet."))}
+        </div>
+        <div class="col">
+          ${box("Calendar", miniCal(d.upcoming), { foot: `<a class="more" href="#/calendar">See all</a>` })}
+          ${box("Been a while", overdue ? `<ul>${overdue}</ul>` : empty("You're up to date with everyone."))}
+          ${box("Gift ideas", gifts ? `<ul class="blist">${gifts}</ul>` : empty("None saved."), { right: `<a href="#" data-action="refresh">shuffle</a>` })}
+        </div>
       </div>`;
   }
 
   // ---------- People ----------
-  async function viewPeople() {
+  async function viewPeople(circle) {
+    if (circle) state.peopleFilter = CIRCLES[circle] ? circle : "all";
     const people = await getPeople(true);
     const counts = {};
     people.forEach((p) => { counts[p.circle] = (counts[p.circle] || 0) + 1; });
@@ -315,42 +335,31 @@
     };
     list = list.slice().sort(sorters[state.peopleSort] || sorters.name);
 
-    const tabs = [`<button class="tab ${state.peopleFilter === "all" ? "on" : ""}" data-action="filter-circle" data-v="all">All<span class="n">${people.length}</span></button>`]
+    const tabs = [`<button class="${state.peopleFilter === "all" ? "on" : ""}" data-action="filter-circle" data-v="all">All (${people.length})</button>`]
       .concat(Object.entries(CIRCLES).filter(([k]) => counts[k]).map(([k, c]) =>
-        `<button class="tab ${state.peopleFilter === k ? "on" : ""}" data-action="filter-circle" data-v="${k}">${c.label}<span class="n">${counts[k]}</span></button>`)).join("");
+        `<button class="${state.peopleFilter === k ? "on" : ""}" data-action="filter-circle" data-v="${k}">${c.label} (${counts[k]})</button>`)).join("");
 
-    const cards = list.map((p) => {
-      const c = CIRCLES[p.circle] || CIRCLES.other;
-      const flags = [];
-      if (p.next_birthday_days != null && p.next_birthday_days <= 30) flags.push(`<span class="tag t-birthday">Birthday ${until(p.next_birthday_days)}</span>`);
-      if (p.open_problems) flags.push(`<span class="tag t-problem">Worries ${p.open_problems}</span>`);
-      if (p.gift_ideas) flags.push(`<span class="tag t-gift">Gift ideas ${p.gift_ideas}</span>`);
-      if (p.overdue) flags.push(`<span class="tag t-interest">Check in</span>`);
-      return `
-        <a class="card-person" href="#/person/${p.id}">
-          ${avatar(p, "md")}
-          <div class="body">
-            <div class="ruby">${esc(p.nickname)}</div>
-            <div class="name">${esc(p.name)}${p.favorite ? `<span class="fav" title="Favourite">★</span>` : ""}</div>
-            <div class="line">${c.label}${p.pronouns ? " ・ " + esc(p.pronouns) : ""} ・ ${p.last_contact ? "talked " + ago(p.days_since_contact) : "no conversations yet"}</div>
-            ${flags.length ? `<div class="flags">${flags.join("")}</div>` : ""}
-          </div>
-        </a>`;
+    const cells = list.map((p) => {
+      let flag = "";
+      if (p.next_birthday_days != null && p.next_birthday_days <= 30) flag = `★ birthday ${until(p.next_birthday_days)}`;
+      else if (p.overdue) flag = "say hello";
+      return `<a href="#/person/${p.id}">${photo(p, 76)}${p.favorite ? "♥ " : ""}${esc(p.name)} (${p.memory_count})
+        <span class="meta">${p.last_contact ? "talked " + ago(p.days_since_contact) : "no conversations"}</span>
+        ${flag ? `<span class="flag">${flag}</span>` : ""}</a>`;
     }).join("");
 
     app().innerHTML = `
-      ${crumbs("People")}
-      ${pageTitle("People", "人々", `<button class="btn primary" data-action="new-person">＋ Add person</button>`)}
-      <div class="filters">
-        <div class="tabs">${tabs}</div>
+      ${path("People")}
+      ${pagehead("People", `${people.length} registered`, `<button class="btn orange" data-action="new-person">+ Add person</button>`)}
+      <div class="tabs">${tabs}</div>
+      <p style="text-align:right;margin:0 0 6px">Sort:
         <select id="people-sort" aria-label="Sort people">
-          <option value="name">Sort: favourites, name</option>
-          <option value="contact">Sort: longest since contact</option>
-          <option value="birthday">Sort: next birthday</option>
-          <option value="recent">Sort: recently added</option>
-        </select>
-      </div>
-      ${cards ? `<div class="directory">${cards}</div>` : `<div class="panel">${empty("Nobody in this group yet.")}</div>`}`;
+          <option value="name">Favourites, then name</option>
+          <option value="contact">Longest since contact</option>
+          <option value="birthday">Next birthday</option>
+          <option value="recent">Recently added</option>
+        </select></p>
+      ${box(state.peopleFilter === "all" ? "Everyone" : CIRCLES[state.peopleFilter].label, cells ? `<div class="pgrid wide">${cells}</div>` : empty("Nobody in this group yet."), { n: list.length })}`;
     const sortSel = $("#people-sort");
     sortSel.value = state.peopleSort;
     sortSel.addEventListener("change", () => { state.peopleSort = sortSel.value; viewPeople(); });
@@ -362,166 +371,134 @@
     state.current = p;
     const c = CIRCLES[p.circle] || CIRCLES.other;
 
-    const nb = toDate(p.next_birthday);
-    const bday = p.birthday
-      ? `${fmtDate(p.birthday)} <span class="muted">— ${until(p.next_birthday_days)}${nb ? ` (${WD[nb.getDay()]})` : ""}${p.turning ? `, turning ${p.turning}` : ""}</span>`
-      : `<span class="muted">—</span>`;
-    const freq = p.checkin_days ? `Every ${p.checkin_days} days` : "No reminder";
+    // profile table (mixi-style)
+    const nb = p.next_birthday ? toDate(p.next_birthday) : null;
+    const rows = [
+      ["Name", `${esc(p.name)}${p.favorite ? ` <span style="color:var(--notice)">♥</span>` : ""}`],
+      p.nickname && ["Nickname", esc(p.nickname)],
+      p.pronouns && ["Pronouns", esc(p.pronouns)],
+      ["Group", esc(c.label)],
+      ["Birthday", p.birthday ? `${ymd(p.birthday)}${p.turning ? ` (turning ${p.turning})` : ""} <span class="${p.next_birthday_days <= 14 ? "soon" : "st"}">… ${until(p.next_birthday_days)}${nb ? `, ${WD[nb.getDay()]}` : ""}</span>` : `<span class="st">not set</span>`],
+      ["Last contact", p.last_contact ? `${ymd(p.last_contact)} <span class="${p.overdue ? "soon" : "st"}">(${ago(p.days_since_contact)})</span>` : `<span class="soon">no conversations logged</span>`],
+      ["Check-in", p.checkin_days ? `every ${p.checkin_days} days` : "no reminder"],
+      p.how_met && ["How we met", esc(p.how_met)],
+      p.notes && ["About", `<span style="white-space:pre-wrap">${esc(p.notes)}</span>`],
+    ].filter(Boolean).map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
 
     // notes
     const mems = p.memories.filter((m) => state.memFilter === "all" || m.kind === state.memFilter);
     const kindCounts = {};
     p.memories.forEach((m) => { kindCounts[m.kind] = (kindCounts[m.kind] || 0) + 1; });
-    const tabs = [`<button class="tab ${state.memFilter === "all" ? "on" : ""}" data-action="mem-filter" data-v="all">All<span class="n">${p.memories.length}</span></button>`]
+    const tabs = [`<button class="${state.memFilter === "all" ? "on" : ""}" data-action="mem-filter" data-v="all">All (${p.memories.length})</button>`]
       .concat(KIND_ORDER.filter((k) => kindCounts[k]).map((k) =>
-        `<button class="tab ${state.memFilter === k ? "on" : ""}" data-action="mem-filter" data-v="${k}">${MEMORY_KINDS[k].label}<span class="n">${kindCounts[k]}</span></button>`)).join("");
-
+        `<button class="${state.memFilter === k ? "on" : ""}" data-action="mem-filter" data-v="${k}">${MEMORY_KINDS[k].label} (${kindCounts[k]})</button>`)).join("");
     const memItem = (m) => {
       const done = m.status === "resolved" || m.status === "given" || m.status === "archived";
       let toggle = "";
-      if (m.kind === "problem") toggle = `<button class="icon-btn" data-action="mem-status" data-id="${m.id}" data-v="${done ? "open" : "resolved"}">${done ? "Reopen" : "Resolved"}</button>`;
-      else if (m.kind === "gift") toggle = `<button class="icon-btn" data-action="mem-status" data-id="${m.id}" data-v="${done ? "open" : "given"}">${done ? "Not given" : "Given"}</button>`;
-      const status = m.status === "resolved" ? " ・ resolved" : m.status === "given" ? " ・ given" : m.status === "archived" ? " ・ archived" : "";
-      return `
-        <div class="mem ${done ? "done" : ""} ${m.pinned ? "pinned" : ""}">
-          ${kindTag(m.kind)}
-          <div class="body">
-            <div class="text">${m.pinned ? `<span class="pin">PIN</span>` : ""}${esc(m.text)}${newMark(m.created_at)}</div>
-            ${m.detail ? `<div class="detail">${esc(m.detail)}</div>` : ""}
-            <div class="meta num">${fmtDate(m.created_at)}${status}</div>
-          </div>
-          <div class="tools">
-            ${toggle}
-            <button class="icon-btn" data-action="mem-pin" data-id="${m.id}" data-v="${m.pinned ? 0 : 1}">${m.pinned ? "Unpin" : "Pin"}</button>
-            <button class="icon-btn" data-action="edit-memory" data-id="${m.id}">Edit</button>
-            <button class="icon-btn" data-action="delete-memory" data-id="${m.id}">Delete</button>
-          </div>
-        </div>`;
+      if (m.kind === "problem") toggle = `<a href="#" data-action="mem-status" data-id="${m.id}" data-v="${done ? "open" : "resolved"}">${done ? "reopen" : "resolved"}</a>`;
+      else if (m.kind === "gift") toggle = `<a href="#" data-action="mem-status" data-id="${m.id}" data-v="${done ? "open" : "given"}">${done ? "not given" : "given"}</a>`;
+      const status = m.status === "resolved" ? " [resolved]" : m.status === "given" ? " [given]" : m.status === "archived" ? " [archived]" : "";
+      return `<li class="${done ? "done" : ""} ${m.pinned ? "pinned" : ""}">
+          ${cat(m.kind)}
+          <span class="t"><span class="txt">${m.pinned ? "【PIN】" : ""}${esc(m.text)}</span>${newMark(m.created_at)} <span class="st">${md(m.created_at)}${status}</span>
+            ${m.detail ? `<div class="detail">${esc(m.detail)}</div>` : ""}</span>
+          <span class="ops">${toggle}<a href="#" data-action="mem-pin" data-id="${m.id}" data-v="${m.pinned ? 0 : 1}">${m.pinned ? "unpin" : "pin"}</a><a href="#" data-action="edit-memory" data-id="${m.id}">edit</a><a href="#" data-action="delete-memory" data-id="${m.id}">delete</a></span>
+        </li>`;
     };
-    const memHtml = mems.length ? `<div style="border-top:1px solid var(--line-soft)">${mems.map(memItem).join("")}</div>`
-      : empty(p.memories.length ? "Nothing in this category." : `Nothing noted about ${dname(p)} yet.`);
-
     const kindOptions = KIND_ORDER.map((k) => `<option value="${k}">${MEMORY_KINDS[k].label}</option>`).join("");
+    const notesBody = `
+      <form class="quick" data-form="quick-memory" data-person="${p.id}">
+        <select name="kind" aria-label="Category">${kindOptions}</select>
+        <input type="text" name="text" placeholder="What did ${esc(dname(p))} mention?" aria-label="Note" maxlength="1000" required>
+        <button class="btn orange" type="submit">Add</button>
+      </form>
+      <div class="tabs">${tabs}</div>
+      ${mems.length ? `<ul class="notes">${mems.map(memItem).join("")}</ul>` : empty(p.memories.length ? "Nothing in this category." : "Nothing noted yet.")}`;
 
-    // conversations
+    // conversations, diary style
     const chats = p.interactions.map((i) => `<li>
-        <div class="date">${fmtDate(i.date)}<small>${esc(MODES[i.mode] || "Chat")}${i.mood ? " ・ " + esc(i.mood) : ""}</small></div>
-        <div>
-          <div class="topics">${i.topics ? esc(i.topics) : `<span class="muted">${esc(MODES[i.mode] || "Chat")}</span>`}${newMark(i.created_at)}</div>
-          ${i.follow_up ? `<div class="follow">${esc(i.follow_up)}</div>` : ""}
-        </div>
-        <div class="tools">
-          <button class="icon-btn" data-action="edit-chat" data-id="${i.id}">Edit</button>
-          <button class="icon-btn" data-action="delete-chat" data-id="${i.id}">Delete</button>
-        </div>
+        <div class="dh"><b>${ymd(i.date)}(${WD[toDate(i.date).getDay()]})</b><span>${esc(MODES[i.mode] || "Chat")}${i.mood ? ` ・ mood: ${esc(i.mood)}` : ""}</span>${newMark(i.date)}
+          <span class="ops"><a href="#" data-action="edit-chat" data-id="${i.id}">edit</a><a href="#" data-action="delete-chat" data-id="${i.id}">delete</a></span></div>
+        <div class="db">${i.topics ? esc(i.topics) : `<span class="st">(no topics noted)</span>`}</div>
+        ${i.follow_up ? `<div class="fu">${esc(i.follow_up)}</div>` : ""}
       </li>`).join("");
 
     // dates
-    const dates = p.upcoming.map((e) => `
-      <li><div class="item">${dblock(e.date, e.days)}
-        <div class="body"><div class="title">${eventTitle(e, false)}</div>
-        <div class="meta">${until(e.days)}${e.notes ? " ・ " + esc(e.notes) : ""}</div></div>
-        ${e.id ? `<span class="tools"><button class="icon-btn" data-action="edit-date" data-id="${e.id}">Edit</button><button class="icon-btn" data-action="delete-date" data-id="${e.id}">Delete</button></span>` : ""}
-      </div></li>`).join("");
-    const pastDates = p.dates.filter((d) => !p.upcoming.some((e) => e.id === d.id)).map((d) => `
-      <li><div class="item"><span class="dblock"><b>Past</b><small>&nbsp;</small></span>
-        <div class="body"><div class="title">${esc(d.label)}</div><div class="meta num">${fmtDate(d.date)}</div></div>
-        <span class="tools"><button class="icon-btn" data-action="edit-date" data-id="${d.id}">Edit</button><button class="icon-btn" data-action="delete-date" data-id="${d.id}">Delete</button></span>
-      </div></li>`).join("");
+    const upcomingIds = new Set(p.upcoming.map((e) => e.id));
+    const dates = p.upcoming.map((e) => `<li><span class="d">${md(e.date)}</span><span class="t">${eventText(e, false)}${e.notes ? ` <span class="who">— ${esc(e.notes)}</span>` : ""}</span>
+        <span class="x ${e.days <= 7 ? "soon" : "st"}">${until(e.days)}</span>
+        ${e.id ? `<span class="ops"><a href="#" data-action="edit-date" data-id="${e.id}">edit</a><a href="#" data-action="delete-date" data-id="${e.id}">delete</a></span>` : ""}</li>`).join("")
+      + p.dates.filter((d) => !upcomingIds.has(d.id)).map((d) => `<li><span class="d">${ymd(d.date)}</span><span class="t st">${esc(d.label)} (past)</span>
+        <span class="ops"><a href="#" data-action="edit-date" data-id="${d.id}">edit</a><a href="#" data-action="delete-date" data-id="${d.id}">delete</a></span></li>`).join("");
 
-    // connections
+    // connections grid
     const rels = p.relationships.map((r) => {
       const role = relRole(r, p.id);
-      const lbl = (REL[role.kind] || REL.friend).label;
-      return `<li><div class="item">
-        <a href="#/person/${role.otherId}">${avatar({ id: role.otherId, name: role.oname, avatar: role.avatar }, "sm")}</a>
-        <a class="body" href="#/person/${role.otherId}" style="color:inherit"><div class="title">${esc(role.name)}</div>
-        <div class="meta">${esc(dname(p))}'s ${esc(lbl)}${r.notes ? " ・ " + esc(r.notes) : ""}</div></a>
-        <span class="tools"><button class="icon-btn" data-action="edit-rel" data-id="${r.id}">Edit</button><button class="icon-btn" data-action="delete-rel" data-id="${r.id}">Delete</button></span>
-      </div></li>`;
+      return `<a href="#/person/${role.otherId}">${photo({ id: role.otherId, name: role.oname, avatar: role.avatar }, 50)}${esc(role.name)}<span class="meta">${esc((REL[role.kind] || REL.friend).label)}</span></a>`;
+    }).join("");
+    const relList = p.relationships.map((r) => {
+      const role = relRole(r, p.id);
+      return `<li>${esc(role.name)} <span class="who">— ${esc(dname(p))}'s ${esc((REL[role.kind] || REL.friend).label)}${r.notes ? `, ${esc(r.notes)}` : ""}</span>
+        <span class="ops" style="font-size:11px"><a href="#" data-action="edit-rel" data-id="${r.id}">edit</a><a href="#" data-action="delete-rel" data-id="${r.id}">delete</a></span></li>`;
     }).join("");
 
-    app().innerHTML = `
-      ${crumbs(`<a href="#/people">People</a>`, esc(p.name))}
-      <section class="profile">
-        ${avatar(p, "lg")}
-        <div>
-          <div class="ruby">${esc(p.nickname)}</div>
-          <h1>${esc(p.name)}${p.favorite ? `<span class="fav" title="Favourite">★</span>` : ""}</h1>
-          <dl class="spec">
-            <dt>Group</dt><dd>${c.label} <span class="muted">${c.jp}</span></dd>
-            ${p.pronouns ? `<dt>Pronouns</dt><dd>${esc(p.pronouns)}</dd>` : ""}
-            <dt>Birthday</dt><dd class="num">${bday}</dd>
-            <dt>Last contact</dt><dd class="num">${p.last_contact ? `${fmtDate(p.last_contact)} <span class="muted">— ${ago(p.days_since_contact)}</span>` : `<span class="muted">No conversations logged</span>`}${p.overdue ? ` <span class="tag t-problem">Check in</span>` : ""}</dd>
-            <dt>Reminder</dt><dd>${freq}</dd>
-            ${p.how_met ? `<dt>How we met</dt><dd>${esc(p.how_met)}</dd>` : ""}
-          </dl>
-        </div>
-        <div class="actions">
-          <button class="btn primary" data-action="log-chat" data-person="${p.id}">Log a conversation</button>
-          <button class="btn" data-action="edit-person" data-id="${p.id}">Edit profile</button>
-          <button class="btn text" data-action="delete-person" data-id="${p.id}">Delete this person</button>
-        </div>
-      </section>
+    const notices = [];
+    if (p.next_birthday_days != null && p.next_birthday_days <= 14) notices.push(`<li>${esc(dname(p))}'s birthday is ${p.next_birthday_days === 0 ? "today!" : `on ${md(p.next_birthday)} (${until(p.next_birthday_days)})`}</li>`);
+    if (p.overdue) notices.push(`<li>It's been a while — ${p.last_contact ? `last conversation ${ago(p.days_since_contact)}` : "no conversations logged yet"}.</li>`);
 
-      <div class="layout">
-        <div class="stack">
-          <section class="panel">
-            ${sec("Notes", "覚え書き", `<span class="count">${p.memories.length} items</span>`)}
-            <form class="quick-add" data-form="quick-memory" data-person="${p.id}">
-              <select name="kind" aria-label="Category">${kindOptions}</select>
-              <input type="text" name="text" placeholder="What did ${esc(dname(p))} mention?" aria-label="Note" maxlength="1000" required>
-              <button class="btn navy" type="submit">Add</button>
-            </form>
-            <div class="tabs">${tabs}</div>
-            ${memHtml}
-          </section>
-          <section class="panel">
-            ${sec("Conversations", "会話の記録", `<button class="btn sm" data-action="log-chat" data-person="${p.id}">＋ Log</button>`)}
-            ${chats ? `<ul class="log">${chats}</ul>` : empty("No conversations logged yet.")}
-          </section>
+    app().innerHTML = `
+      ${path(`<a href="#/people">People</a>`, esc(p.name))}
+      <div class="cols two">
+        <div class="col person-side">
+          <div>
+            ${photo(p, 180)}
+            <p class="side-name">${esc(p.name)} (${p.memory_count})${p.nickname ? `<small>“${esc(p.nickname)}”</small>` : ""}</p>
+          </div>
+          <div class="col">
+            ${box("Menu", `<ul class="actions">
+              <li><a href="#" data-action="log-chat" data-person="${p.id}">Log a conversation</a></li>
+              <li><a href="#" data-action="new-memory" data-person="${p.id}">Add a note</a></li>
+              <li><a href="#" data-action="new-date" data-person="${p.id}">Add a date</a></li>
+              <li><a href="#" data-action="new-rel" data-person="${p.id}">Add a connection</a></li>
+              <li><a href="#" data-action="edit-person" data-id="${p.id}">Edit profile</a></li>
+              <li><a href="#" data-action="delete-person" data-id="${p.id}">Delete this person</a></li></ul>`)}
+            ${box("Connections", rels ? `<div class="pgrid">${rels}</div>` : empty("None yet."), { n: p.relationships.length, foot: `<a class="more" href="#/web">Relationship chart</a>` })}
+          </div>
         </div>
-        <aside class="stack">
-          <section class="panel">
-            ${sec("Dates", "記念日", `<button class="btn sm" data-action="new-date" data-person="${p.id}">＋ Add</button>`)}
-            ${dates || pastDates ? `<ul class="list">${dates}${pastDates}</ul>` : empty("Anniversaries, exams, trips…")}
-          </section>
-          <section class="panel">
-            ${sec("Connections", "相関", `<button class="btn sm" data-action="new-rel" data-person="${p.id}">＋ Link</button>`)}
-            ${rels ? `<ul class="list">${rels}</ul>` : empty("No connections yet.")}
-          </section>
-          <section class="panel">
-            ${sec("Profile notes", "備考")}
-            ${p.notes ? `<div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(p.notes)}</div>` : empty("No notes.")}
-            <p class="muted num" style="font-size:11.5px;margin:12px 0 0">Registered ${fmtDate(p.created_at)}</p>
-          </section>
-        </aside>
+        <div class="col">
+          ${notices.length ? `<ul class="notice">${notices.join("")}</ul>` : ""}
+          ${box("Profile", `<table class="ptable">${rows}</table>`, { right: `<a href="#" data-action="edit-person">edit</a>` })}
+          ${box("Notes", notesBody, { n: p.memories.length })}
+          ${box("Conversations", chats ? `<ul class="diary">${chats}</ul>` : empty("No conversations logged yet."), { n: p.interactions.length, right: `<a href="#" data-action="log-chat" data-person="${p.id}">+ log</a>` })}
+          ${box("Dates", dates ? `<ul class="dl">${dates}</ul>` : empty("Anniversaries, exams, trips…"), { right: `<a href="#" data-action="new-date" data-person="${p.id}">+ add</a>` })}
+          ${relList ? box("Connection details", `<ul class="blist">${relList}</ul>`) : ""}
+        </div>
       </div>`;
   }
 
-  // ---------- Connections chart (相関図) ----------
+  // ---------- Relationship chart (人物相関図) ----------
   let webStop = null;
   async function viewWeb() {
     const g = await api("GET", "/api/relationships");
-    const head = `${crumbs("Connections")}${pageTitle("Connections", "相関図")}`;
+    const head = `${path("Relationship chart")}${pagehead("Relationship chart", "who is who to whom")}`;
     if (!g.people.length) {
-      app().innerHTML = `${head}<div class="panel">${empty("Add people and link them to see the chart.")}</div>`;
+      app().innerHTML = `${head}${box("Chart", empty("Add people and link them to see the chart."))}`;
       return;
     }
     let showMe = true;
     try { showMe = localStorage.getItem("mannele.web.me") !== "0"; } catch (_) { /* ignore */ }
     app().innerHTML = `
       ${head}
-      <p class="lead-text">Drag to rearrange, scroll to zoom, click a person to open their page. An arrow from A to B reads “A is B's …”.</p>
-      <section class="panel flush">
-        <div class="web-tools">
-          <label class="check"><input type="checkbox" id="web-me" ${showMe ? "checked" : ""}> Show me in the centre</label>
+      <p class="st">Drag people to rearrange, scroll to zoom, click a portrait to open the profile. An arrow from A to B reads “A is B's …”.</p>
+      <div class="chart-wrap">
+        <div class="chart-tools">
+          <label class="check"><input type="checkbox" id="web-me" ${showMe ? "checked" : ""}> Put me in the middle</label>
           <span style="flex:1"></span>
-          <div class="legend">${Object.values(REL_GROUPS).map((gr) => `<span><i style="background:${gr.color}"></i>${gr.label}</span>`).join("")}</div>
-          <button class="btn sm" data-action="web-shuffle">Rearrange</button>
+          <span class="legend">${Object.values(REL_GROUPS).map((gr) => `<span><i style="background:${gr.color}"></i>${gr.label}</span>`).join("")}</span>
+          <button class="btn" data-action="web-shuffle">Rearrange</button>
         </div>
         <svg id="web-svg" xmlns="http://www.w3.org/2000/svg" aria-label="Relationship chart"></svg>
-      </section>`;
+      </div>`;
     $("#web-me").addEventListener("change", (e) => {
       try { localStorage.setItem("mannele.web.me", e.target.checked ? "1" : "0"); } catch (_) { /* ignore */ }
       viewWeb();
@@ -534,7 +511,7 @@
     const NS = "http://www.w3.org/2000/svg";
     const nodes = g.people.map((p, i) => {
       const ang = (i / g.people.length) * Math.PI * 2;
-      const r = 120 + g.people.length * 12;
+      const r = 130 + g.people.length * 12;
       return { ...p, x: Math.cos(ang) * r + (Math.random() - .5) * 20, y: Math.sin(ang) * r + (Math.random() - .5) * 20, vx: 0, vy: 0 };
     });
     const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -554,7 +531,7 @@
           const a = all[i], b = all[j];
           let dx = b.x - a.x, dy = b.y - a.y;
           const d2 = dx * dx + dy * dy || 1;
-          const f = (16000 / d2) * alpha;
+          const f = (18000 / d2) * alpha;
           const d = Math.sqrt(d2);
           dx /= d; dy /= d;
           a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
@@ -563,7 +540,7 @@
       for (const l of links) {
         const dx = l.t.x - l.s.x, dy = l.t.y - l.s.y;
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        const want = l.me ? 240 : 170;
+        const want = l.me ? 250 : 185;
         const k = (l.me ? 0.012 : 0.05) * (d - want) * alpha;
         const fx = (dx / d) * k, fy = (dy / d) * k;
         l.s.vx += fx; l.s.vy += fy; l.t.vx -= fx; l.t.vy -= fy;
@@ -578,7 +555,7 @@
     for (let i = 0; i < 400; i++) tick(1);
 
     const xs = all.map((n) => n.x), ys = all.map((n) => n.y);
-    const padding = 100;
+    const padding = 110;
     const vb = { x: Math.min(...xs) - padding, y: Math.min(...ys) - padding, w: Math.max(...xs) - Math.min(...xs) + padding * 2, h: Math.max(...ys) - Math.min(...ys) + padding * 2 };
     const rect = svg.getBoundingClientRect();
     const aspect = rect.width / Math.max(1, rect.height);
@@ -589,7 +566,7 @@
 
     const defs = document.createElementNS(NS, "defs");
     defs.innerHTML = Object.entries(REL_GROUPS).map(([k, gr]) =>
-      `<marker id="arrow-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="${gr.color}"/></marker>`).join("");
+      `<marker id="arrow-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="${gr.color}"/></marker>`).join("");
     const edgeLayer = document.createElementNS(NS, "g");
     const labelLayer = document.createElementNS(NS, "g");
     const nodeLayer = document.createElementNS(NS, "g");
@@ -599,20 +576,20 @@
       const line = document.createElementNS(NS, "line");
       let lab = null;
       if (l.me) {
-        line.setAttribute("stroke", (CIRCLES[l.t.circle] || CIRCLES.other).color);
-        line.setAttribute("stroke-width", "1");
-        line.setAttribute("stroke-dasharray", "3 4");
-        line.setAttribute("opacity", ".45");
+        line.setAttribute("stroke", "#e0a060");
+        line.setAttribute("stroke-width", "1.2");
+        line.setAttribute("stroke-dasharray", "2 4");
+        line.setAttribute("opacity", ".6");
       } else {
         const rk = REL[l.rel.kind] || REL.friend;
         const grp = REL_GROUPS[rk.group];
         line.setAttribute("stroke", grp.color);
-        line.setAttribute("stroke-width", "1.8");
+        line.setAttribute("stroke-width", "3");
         line.setAttribute("marker-end", `url(#arrow-${rk.group})`);
         if (rk.inv === l.rel.kind) line.setAttribute("marker-start", `url(#arrow-${rk.group})`);
         lab = document.createElementNS(NS, "g");
-        const w = rk.label.length * 6.6 + 16;
-        lab.innerHTML = `<title>${esc(dname(l.s))} is ${esc(dname(l.t))}'s ${esc(rk.label)}</title><rect class="edge-pill" x="${-w / 2}" y="-10" width="${w}" height="20" stroke="${grp.color}"/><text class="edge-label" text-anchor="middle" y="4">${esc(rk.label)}</text>`;
+        const w = rk.label.length * 7 + 14;
+        lab.innerHTML = `<title>${esc(dname(l.s))} is ${esc(dname(l.t))}'s ${esc(rk.label)}</title><rect x="${-w / 2}" y="-10" width="${w}" height="20" rx="10" fill="${grp.color}" stroke="#fff" stroke-width="1.5"/><text class="lbl" text-anchor="middle" y="4">${esc(rk.label)}</text>`;
         labelLayer.appendChild(lab);
       }
       edgeLayer.appendChild(line);
@@ -623,16 +600,16 @@
       const el = document.createElementNS(NS, "g");
       el.setAttribute("class", "node");
       if (n.id === "me") {
-        el.innerHTML = `<rect x="-30" y="-30" width="60" height="60" fill="#b7282e"/><rect x="-26" y="-26" width="52" height="52" fill="none" stroke="#fff" stroke-width="1.5"/>
-          <text text-anchor="middle" y="7" style="font-size:20px;fill:#fff;font-family:var(--serif)">自分</text>`;
+        el.innerHTML = `<circle r="30" fill="#f08a1c" stroke="#fff" stroke-width="3"/><text text-anchor="middle" y="5" style="font-size:14px;font-weight:bold;fill:#fff">YOU</text>`;
       } else {
         const col = (CIRCLES[n.circle] || CIRCLES.other).color;
         const nm = dname(n);
-        const w = Math.max(64, nm.length * 7.6 + 16);
-        el.innerHTML = `<rect x="-33" y="-33" width="66" height="66" fill="var(--paper)" stroke="${col}" stroke-width="2"/>
-          <g transform="translate(-30 -30)">${Avatar.render(parseAv(n.avatar), n.id + ":" + n.name, { size: 60 })}</g>
-          <rect class="name-box" x="${-w / 2}" y="37" width="${w}" height="20"/>
-          <text class="node-name" text-anchor="middle" y="51">${esc(nm)}${n.favorite ? " ★" : ""}</text>`;
+        const w = Math.max(70, nm.length * 7.8 + 22);
+        el.innerHTML = `<rect x="-36" y="-36" width="72" height="72" fill="#fff" stroke="#c9c9c9"/>
+          <g transform="translate(-33 -33)">${Avatar.render(parseAv(n.avatar), n.id + ":" + n.name, { size: 66 })}</g>
+          <rect class="plate" x="${-w / 2}" y="38" width="${w}" height="20" stroke="${col}" stroke-width="1"/>
+          <rect x="${-w / 2}" y="38" width="6" height="20" fill="${col}"/>
+          <text class="plate-text" text-anchor="middle" x="3" y="52">${esc(nm)}${n.favorite ? " ♥" : ""}</text>`;
         el.setAttribute("tabindex", "0");
         el.setAttribute("role", "link");
         el.setAttribute("aria-label", nm);
@@ -648,9 +625,8 @@
         const dx = l.t.x - l.s.x, dy = l.t.y - l.s.y;
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
         const ux = dx / d, uy = dy / d;
-        // stop lines at the square frames so arrowheads stay visible
-        const inset = Math.min(38 / Math.max(Math.abs(ux), Math.abs(uy), 0.01), d / 2 - 2);
-        const s0 = l.me ? 0 : inset;
+        const inset = Math.min(42 / Math.max(Math.abs(ux), Math.abs(uy), 0.01), d / 2 - 2);
+        const s0 = l.me ? 32 : inset;
         line.setAttribute("x1", l.s.x + ux * s0); line.setAttribute("y1", l.s.y + uy * s0);
         line.setAttribute("x2", l.t.x - ux * inset); line.setAttribute("y2", l.t.y - uy * inset);
         if (lab) lab.setAttribute("transform", `translate(${(l.s.x + l.t.x) / 2} ${(l.s.y + l.t.y) / 2})`);
@@ -730,27 +706,50 @@
     };
   }
 
-  // ---------- Calendar ----------
+  // ---------- Calendar (month grid, Sun red / Sat blue) ----------
   async function viewCalendar() {
     const events = await api("GET", "/api/upcoming?days=366");
-    const months = new Map();
-    events.forEach((e) => {
-      const d = toDate(e.date);
-      const key = `${d.getFullYear()}.${pad(d.getMonth() + 1)}`;
-      if (!months.has(key)) months.set(key, { label: d.toLocaleDateString("en", { month: "long", year: "numeric" }), list: [] });
-      months.get(key).list.push(e);
-    });
-    const html = Array.from(months.entries()).map(([key, m]) => `
-      <section class="panel">${sec(esc(m.label), `${key.slice(0, 4)}年${+key.slice(5)}月`, `<span class="count">${m.list.length}</span>`)}
-        <ul class="list">${m.list.map((e) => `
-          <li><a class="item" href="#/person/${e.person_id}">${dblock(e.date, e.days)}${eventTag(e)}
-            ${avatar({ id: e.person_id, name: e.person_name, avatar: e.avatar }, "xs")}
-            <div class="body"><div class="title">${eventTitle(e)}</div><div class="meta">${until(e.days)}${e.notes ? " ・ " + esc(e.notes) : ""}</div></div></a></li>`).join("")}
-        </ul></section>`).join("");
+    const t = toDate(state.today);
+    const off = Math.max(0, Math.min(11, state.calOffset || 0));
+    const y = new Date(t.getFullYear(), t.getMonth() + off, 1).getFullYear();
+    const m = new Date(t.getFullYear(), t.getMonth() + off, 1).getMonth();
+    const byIso = {};
+    events.forEach((e) => { (byIso[e.date] = byIso[e.date] || []).push(e); });
+
+    const start = new Date(y, m, 1 - new Date(y, m, 1).getDay());
+    let body = "";
+    for (let w = 0; w < 6; w++) {
+      let row = "";
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + w * 7 + i);
+        const iso = isoOf(d);
+        const evs = (byIso[iso] || []).map((e) => `<a class="e ${e.type === "birthday" ? "b" : ""}" href="#/person/${e.person_id}">${e.type === "birthday" ? "★" : "・"}${e.type === "birthday" ? esc(e.person_name) : esc(e.label)}</a>`).join("");
+        const cls = [i === 0 ? "su" : i === 6 ? "sa" : "", d.getMonth() !== m ? "out" : "", iso === state.today ? "today" : ""].join(" ");
+        row += `<td class="${cls}"><span class="dn">${d.getDate()}</span>${evs}</td>`;
+      }
+      body += `<tr>${row}</tr>`;
+      if (new Date(start.getFullYear(), start.getMonth(), start.getDate() + (w + 1) * 7).getMonth() !== m && w >= 3) break;
+    }
+
+    const list = events.map((e) => `<li><span class="d">${md(e.date)}</span><span class="t"><a href="#/person/${e.person_id}">${eventText(e, e.type === "birthday")}</a>${e.type !== "birthday" ? ` <span class="who">(${esc(e.person_name)})</span>` : ""}</span></li>`).join("");
+
     app().innerHTML = `
-      ${crumbs("Dates")}
-      ${pageTitle("Dates", "暦 ・ 今後一年")}
-      <div class="stack">${html || `<div class="panel">${empty("No dates yet. Add birthdays and other dates on each person's page.")}</div>`}</div>`;
+      ${path("Calendar")}
+      ${pagehead("Calendar", "birthdays, anniversaries and events")}
+      <div class="cols two-r">
+        <div class="col">
+          <div class="calnav">
+            <button class="btn" data-action="cal-move" data-v="-1" ${off === 0 ? "disabled" : ""}>« Prev</button>
+            <span>${y}/${pad(m + 1)}</span>
+            <button class="btn" data-action="cal-move" data-v="1" ${off === 11 ? "disabled" : ""}>Next »</button>
+          </div>
+          <table class="bigcal"><tr>${WD.map((w, i) => `<th class="${i === 0 ? "su" : i === 6 ? "sa" : ""}">${w}</th>`).join("")}</tr>${body}</table>
+          <p class="st">★ = birthday. Dates repeat every year unless marked as one-off.</p>
+        </div>
+        <div class="col">
+          ${box("Next 12 months", list ? `<ul class="dl">${list}</ul>` : empty("No dates yet."), { n: events.length })}
+        </div>
+      </div>`;
   }
 
   // ---------- Search ----------
@@ -758,20 +757,20 @@
     const r = await api("GET", `/api/search?q=${encodeURIComponent(q)}`);
     $("#search-input").value = q;
     const rx = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-    const hl = (s) => esc(s).replace(rx, (m) => `<mark>${m}</mark>`);
-    const people = r.people.map((p) => `<li><a class="item" href="#/person/${p.id}">${avatar(p, "sm")}<div class="body"><div class="title">${hl(p.name)}</div><div class="meta">${hl(p.nickname)}</div></div></a></li>`).join("");
-    const mems = r.memories.map((m) => `<li><a class="item" href="#/person/${m.person_id}">${kindTag(m.kind)}<div class="body"><div class="title">${hl(m.text)}</div><div class="meta">${esc(m.nickname || m.name)}${m.detail ? " ・ " + hl(m.detail) : ""}</div></div></a></li>`).join("");
-    const chats = r.interactions.map((i) => `<li><a class="item" href="#/person/${i.person_id}"><span class="date">${fmtDate(i.date)}</span><div class="body"><div class="title">${hl(i.topics)}</div><div class="meta">${esc(i.nickname || i.name)}${i.follow_up ? " ・ next time: " + hl(i.follow_up) : ""}</div></div></a></li>`).join("");
+    const hl = (s) => esc(s).replace(rx, (x) => `<mark>${x}</mark>`);
+    const people = r.people.map((p) => `<a href="#/person/${p.id}">${photo(p, 50)}${hl(p.name)}${p.nickname ? `<span class="meta">${hl(p.nickname)}</span>` : ""}</a>`).join("");
+    const mems = r.memories.map((m) => `<li>${cat(m.kind)}<span class="t"><a href="#/person/${m.person_id}">${hl(m.text)}</a> <span class="st">(${esc(m.nickname || m.name)})</span>${m.detail ? `<div class="detail">${hl(m.detail)}</div>` : ""}</span></li>`).join("");
+    const chats = r.interactions.map((i) => `<li><span class="d">${ymd(i.date)}</span><span class="t"><a href="#/person/${i.person_id}">${hl(i.topics)}</a> <span class="who">(${esc(i.nickname || i.name)})</span>${i.follow_up ? `<br><span class="st">next time: ${hl(i.follow_up)}</span>` : ""}</span></li>`).join("");
     const total = r.people.length + r.memories.length + r.interactions.length;
     app().innerHTML = `
-      ${crumbs("Search")}
-      ${pageTitle(`“${esc(q)}”`, "検索結果", `<span class="muted">${total} result${total === 1 ? "" : "s"}</span>`)}
-      ${!total ? `<div class="panel">${empty("No matches. Try a different word.")}</div>` : `
-      <div class="stack">
-        ${people ? `<section class="panel">${sec("People", "人々")}<ul class="list">${people}</ul></section>` : ""}
-        ${mems ? `<section class="panel">${sec("Notes", "覚え書き")}<ul class="list">${mems}</ul></section>` : ""}
-        ${chats ? `<section class="panel">${sec("Conversations", "会話")}<ul class="list">${chats}</ul></section>` : ""}
-      </div>`}`;
+      ${path("Search results")}
+      ${pagehead(`Search results for “${esc(q)}”`, `${total} hit${total === 1 ? "" : "s"}`)}
+      <div class="col">
+        ${!total ? box("No results", empty("Nothing matched. Try another word.")) : ""}
+        ${people ? box("People", `<div class="pgrid wide">${people}</div>`, { n: r.people.length }) : ""}
+        ${mems ? box("Notes", `<ul class="notes">${mems}</ul>`, { n: r.memories.length }) : ""}
+        ${chats ? box("Conversations", `<ul class="dl">${chats}</ul>`, { n: r.interactions.length }) : ""}
+      </div>`;
   }
 
   // ---------- Settings ----------
@@ -779,38 +778,24 @@
     let theme = "auto";
     try { theme = localStorage.getItem("mannele.theme") || "auto"; } catch (_) { /* ignore */ }
     app().innerHTML = `
-      ${crumbs("Settings")}
-      ${pageTitle("Settings", "設定")}
-      <table class="settings-table">
-        <tr><th>Appearance<small>表示</small></th><td>
-          <div class="segmented" id="theme">
-            <button data-v="auto">Follow device</button><button data-v="light">Light</button><button data-v="dark">Dark</button>
-          </div></td></tr>
-        <tr><th>Backup<small>バックアップ</small></th><td>
-          <p>All data is stored in a single SQLite file on your machine. Download a backup from time to time.</p>
-          <div class="btns">
-            <button class="btn navy" data-action="export">Download backup (JSON)</button>
-            <label class="btn" style="cursor:pointer">Restore from file…<input type="file" id="import-file" accept="application/json,.json" hidden></label>
-          </div>
-          <label class="check" style="margin-top:10px"><input type="checkbox" id="import-replace"> Replace all current data when restoring (otherwise merge)</label>
-        </td></tr>
-        <tr><th>Example data<small>サンプル</small></th><td>
-          <p>Add a few example people to try things out.</p>
-          <button class="btn" data-action="seed-demo">Load example people</button>
-        </td></tr>
-        <tr id="session-row" hidden><th>Session<small>ログイン</small></th><td>
-          <p>This notebook is password-protected.</p>
-          <button class="btn" data-action="logout">Log out</button>
-        </td></tr>
+      ${path("Settings")}
+      ${pagehead("Settings")}
+      <table class="ftable">
+        ${frow("Display", `<span class="radios" id="theme">
+            <label><input type="radio" name="theme" value="auto"> Follow device</label>
+            <label><input type="radio" name="theme" value="light"> Light</label>
+            <label><input type="radio" name="theme" value="dark"> Dark</label></span>`)}
+        ${frow("Backup", `<p>All data is kept in one SQLite file on this machine. Download a backup every now and then.</p>
+            <button class="btn orange" data-action="export">Download backup (JSON)</button>
+            <label class="btn" style="cursor:pointer">Restore from file...<input type="file" id="import-file" accept="application/json,.json" hidden></label>
+            <label class="check" style="display:flex;margin-top:6px"><input type="checkbox" id="import-replace"> Replace all current data when restoring (otherwise merge)</label>`)}
+        ${frow("Example data", `<p>Adds a few example people so you can try things out.</p><button class="btn" data-action="seed-demo">Load example people</button>`)}
+        <tr id="session-row" hidden><th>Session</th><td><p>This notebook is password-protected.</p><button class="btn" data-action="logout">Log out</button></td></tr>
       </table>`;
-    const seg = $("#theme");
-    const mark = (v) => $$("button", seg).forEach((b) => b.classList.toggle("on", b.dataset.v === v));
-    mark(theme);
-    seg.addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      try { localStorage.setItem("mannele.theme", b.dataset.v); } catch (_) { /* ignore */ }
-      mark(b.dataset.v);
+    const r = $(`#theme input[value="${theme}"]`);
+    if (r) r.checked = true;
+    $("#theme").addEventListener("change", (e) => {
+      try { localStorage.setItem("mannele.theme", e.target.value); } catch (_) { /* ignore */ }
       applyTheme();
     });
     $("#import-file").addEventListener("change", importFile);
@@ -835,22 +820,21 @@
   }
 
   // ---------- Login ----------
+  let authEnabled = false;
   function setChrome(on) {
-    $("#topbar").hidden = !on;
-    $("#footer").hidden = !on;
+    $("#hd").hidden = !on;
+    $("#ft").hidden = !on;
+    $("#logout-item").hidden = !(on && authEnabled);
   }
   function viewLogin() {
     setChrome(false);
     app().innerHTML = `
-      <div class="center-box">
-        <span class="hanko">縁</span>
-        <h1>Mannele <span class="muted" style="font-size:13px;font-weight:400">ログイン</span></h1>
-        <p>Enter the password to open the notebook.</p>
+      <div class="center">${box("Log in", `
+        <span class="logo-word">Mannele</span>
         <form data-form="login">
-          <input type="password" name="password" placeholder="Password" aria-label="Password" autofocus required autocomplete="current-password">
-          <button class="btn primary" type="submit">Log in</button>
-        </form>
-      </div>`;
+          <table class="ftable">${frow("Password", `<input type="password" name="password" aria-label="Password" autofocus required autocomplete="current-password" style="width:100%">`)}</table>
+          <div class="submit-row"><button class="btn orange big" type="submit">Log in</button></div>
+        </form>`)}</div>`;
     setTimeout(() => { const i = $("input[name=password]"); if (i) i.focus(); }, 30);
   }
 
@@ -862,41 +846,29 @@
     const av = Avatar.normalize(parseAv(p.avatar), p.id ? p.id + ":" + p.name : Math.random());
     let birthday = p.birthday || "", unknownYear = false;
     if (birthday.startsWith("--")) { unknownYear = true; birthday = "2000" + birthday.slice(1); }
-    const circles = Object.entries(CIRCLES).map(([k, c]) => `<option value="${k}">${c.label}（${c.jp}）</option>`).join("");
+    const circles = Object.entries(CIRCLES).map(([k, c]) => `<label><input type="radio" name="circle" value="${k}" ${(p.circle || "friends") === k ? "checked" : ""}> ${c.label}</label>`).join("");
     const freq = [[0, "No reminder"], [7, "Every week"], [14, "Every two weeks"], [30, "Every month"], [60, "Every two months"], [90, "Every three months"], [180, "Twice a year"], [365, "Once a year"]];
     const curFreq = p.checkin_days ?? 30;
     if (!freq.some(([v]) => v === curFreq)) freq.push([curFreq, `Every ${curFreq} days`]);
 
-    openModal(`
-      ${modalHead(p.id ? `Edit ${esc(dname(p))}` : "Add a person", p.id ? "編集" : "新規登録")}
-      <p class="lead">${p.id ? "Update the profile details." : "Only the name is required. You can fill in the rest later."}</p>
+    openModal(p.id ? `Edit profile: ${esc(p.name)}` : "Add a person", `
       <form data-form="person" data-id="${p.id || ""}">
-        <div class="maker">
-          <div class="preview"><span class="av lg" id="av-preview"></span>
-            <button type="button" class="btn sm" data-action="av-random">Randomise</button></div>
-          <div class="opts" id="av-opts"></div>
-        </div>
         <input type="hidden" name="avatar">
-        <div class="row2">
-          <div class="field"><label for="f-name">Name<span class="req">Required</span></label><input id="f-name" type="text" name="name" required maxlength="120" value="${esc(p.name)}" autofocus></div>
-          <div class="field"><label for="f-nick">Nickname</label><input id="f-nick" type="text" name="nickname" maxlength="120" value="${esc(p.nickname)}" placeholder="What you call them"></div>
-        </div>
-        <div class="row3">
-          <div class="field"><label for="f-pron">Pronouns</label><input id="f-pron" type="text" name="pronouns" maxlength="40" value="${esc(p.pronouns)}" list="pronoun-list">
-            <datalist id="pronoun-list"><option value="she/her"><option value="he/him"><option value="they/them"><option value="she/they"><option value="he/they"></datalist></div>
-          <div class="field"><label for="f-circle">Group</label><select id="f-circle" name="circle">${circles}</select></div>
-          <div class="field"><label for="f-freq">Check-in reminder</label><select id="f-freq" name="checkin_days">${freq.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></div>
-        </div>
-        <div class="row2">
-          <div class="field"><label for="f-bday">Birthday</label><input id="f-bday" type="date" name="birthday" value="${esc(birthday)}"></div>
-          <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" name="unknown_year" ${unknownYear ? "checked" : ""}> Year unknown</label></div>
-        </div>
-        <div class="field"><label for="f-met">How you met</label><input id="f-met" type="text" name="how_met" maxlength="2000" value="${esc(p.how_met)}"></div>
-        <div class="field"><label for="f-notes">Notes</label><textarea id="f-notes" name="notes" maxlength="10000">${esc(p.notes)}</textarea></div>
-        <label class="check"><input type="checkbox" name="favorite" ${p.favorite ? "checked" : ""}> Mark as favourite ★</label>
-        ${modalActions(p.id ? "Save" : "Register")}
+        <table class="ftable">
+          ${frow("Portrait", `<div class="maker"><div><span class="photo s76" id="av-preview"></span><button type="button" class="btn" data-action="av-random" style="margin-top:4px;font-size:11px">Random</button></div><div class="opts" id="av-opts"></div></div>`)}
+          ${frow("Name", `<input id="f-name" type="text" name="name" required maxlength="120" value="${esc(p.name)}" autofocus>`, true)}
+          ${frow("Nickname", `<input type="text" name="nickname" maxlength="120" value="${esc(p.nickname)}">`, false, "What you call them. Shown instead of the full name in lists.")}
+          ${frow("Pronouns", `<input type="text" name="pronouns" maxlength="40" value="${esc(p.pronouns)}" list="pronoun-list" class="short" style="width:160px">
+            <datalist id="pronoun-list"><option value="she/her"><option value="he/him"><option value="they/them"><option value="she/they"><option value="he/they"></datalist>`)}
+          ${frow("Group", `<span class="radios">${circles}</span>`)}
+          ${frow("Birthday", `<input type="date" name="birthday" value="${esc(birthday)}"> <label class="check"><input type="checkbox" name="unknown_year" ${unknownYear ? "checked" : ""}> year unknown</label>`)}
+          ${frow("Check-in", `<select name="checkin_days" id="f-freq" class="short">${freq.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>`, false, "You'll be reminded on the home page when it's been longer than this.")}
+          ${frow("How we met", `<input type="text" name="how_met" maxlength="2000" value="${esc(p.how_met)}">`)}
+          ${frow("About", `<textarea name="notes" maxlength="10000">${esc(p.notes)}</textarea>`)}
+          ${frow("Favourite", `<label class="check"><input type="checkbox" name="favorite" ${p.favorite ? "checked" : ""}> Show first in lists ♥</label>`)}
+        </table>
+        ${submitRow(p.id ? "Save" : "Register")}
       </form>`, { wide: true });
-    $("#f-circle").value = p.circle || "friends";
     $("#f-freq").value = String(curFreq);
     setupMaker(av);
   }
@@ -905,17 +877,16 @@
     const O = Avatar.OPTIONS, L = Avatar.LABELS;
     const swatches = (key, colors) => colors.map((c) =>
       `<button type="button" class="swatch ${av[key] === c ? "on" : ""}" style="background:${c}" data-action="av-set" data-k="${key}" data-v="${c}" aria-label="${key} ${c}"></button>`).join("");
-    const select = (key, label) => `<label class="opt-row"><span>${label}</span><select data-av="${key}">${O[key].map((v) => `<option value="${v}" ${av[key] === v ? "selected" : ""}>${L[key][v]}</option>`).join("")}</select></label>`;
+    const select = (key, label) => `<label class="orow"><span>${label}</span><select data-av="${key}">${O[key].map((v) => `<option value="${v}" ${av[key] === v ? "selected" : ""}>${L[key][v]}</option>`).join("")}</select></label>`;
     const paint = () => {
       $("#av-preview").innerHTML = Avatar.render(av, "x");
       $("input[name=avatar]").value = JSON.stringify(av);
       $("#av-opts").innerHTML = `
-        <div class="opt-row"><span>Hair</span>${swatches("hair", O.hair)}</div>
-        <div class="opt-row"><span>Skin</span>${swatches("skin", O.skin)}</div>
-        <div class="opt-row"><span>Eyes</span>${swatches("eye", O.eye)}</div>
-        <div class="opt-row"><span>Background</span>${swatches("bg", O.bg)}</div>
-        <div class="opt-row" style="gap:12px">${select("style", "Hairstyle")}${select("eyes", "Expression")}</div>
-        <div class="opt-row" style="gap:12px">${select("mouth", "Mouth")}${select("acc", "Accessory")}</div>`;
+        <div class="orow"><span>Hair</span>${swatches("hair", O.hair)}</div>
+        <div class="orow"><span>Skin</span>${swatches("skin", O.skin)}</div>
+        <div class="orow"><span>Eyes</span>${swatches("eye", O.eye)}</div>
+        <div class="orow"><span>Background</span>${swatches("bg", O.bg)}</div>
+        ${select("style", "Hairstyle")}${select("eyes", "Expression")}${select("mouth", "Mouth")}${select("acc", "Accessory")}`;
       $$("#av-opts select").forEach((s) => s.addEventListener("change", () => { av[s.dataset.av] = s.value; paint(); }));
     };
     actions["av-set"] = (el) => { av[el.dataset.k] = el.dataset.v; paint(); };
@@ -925,60 +896,49 @@
 
   function memoryForm(m, personId) {
     m = m || { kind: "note", status: "open" };
-    const statuses = { open: "Open / current", resolved: "Resolved", given: "Given", archived: "Archived" };
-    openModal(`
-      ${modalHead(m.id ? "Edit note" : "Add a note", "覚え書き")}
-      <form data-form="memory" data-id="${m.id || ""}" data-person="${personId || ""}" style="margin-top:16px">
-        <div class="field"><label for="m-kind">Category</label>
-          <select id="m-kind" name="kind">${KIND_ORDER.map((k) => `<option value="${k}">${MEMORY_KINDS[k].label}（${MEMORY_KINDS[k].jp}） — ${MEMORY_KINDS[k].hint}</option>`).join("")}</select></div>
-        <div class="field"><label for="m-text">Note<span class="req">Required</span></label><input id="m-text" type="text" name="text" required maxlength="1000" value="${esc(m.text)}" autofocus></div>
-        <div class="field"><label for="m-detail">Details</label><textarea id="m-detail" name="detail" maxlength="5000" placeholder="Context, links, sizes…">${esc(m.detail)}</textarea></div>
-        <div class="field"><label for="m-status">Status</label><select id="m-status" name="status">${Object.entries(statuses).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
-        <label class="check"><input type="checkbox" name="pinned" ${m.pinned ? "checked" : ""}> Pin to top</label>
-        ${modalActions()}
+    const statuses = { open: "Open", resolved: "Resolved", given: "Given", archived: "Archived" };
+    openModal(m.id ? "Edit note" : "Add a note", `
+      <form data-form="memory" data-id="${m.id || ""}" data-person="${personId || ""}">
+        <table class="ftable">
+          ${frow("Category", `<select id="m-kind" name="kind">${KIND_ORDER.map((k) => `<option value="${k}">${MEMORY_KINDS[k].label} — ${MEMORY_KINDS[k].hint}</option>`).join("")}</select>`)}
+          ${frow("Note", `<input type="text" name="text" required maxlength="1000" value="${esc(m.text)}" autofocus>`, true)}
+          ${frow("Details", `<textarea name="detail" maxlength="5000">${esc(m.detail)}</textarea>`, false, "Context, sizes, links, who said what.")}
+          ${frow("Status", `<span class="radios">${Object.entries(statuses).map(([k, v]) => `<label><input type="radio" name="status" value="${k}" ${m.status === k ? "checked" : ""}> ${v}</label>`).join("")}</span>`)}
+          ${frow("Pin", `<label class="check"><input type="checkbox" name="pinned" ${m.pinned ? "checked" : ""}> Keep at the top</label>`)}
+        </table>
+        ${submitRow()}
       </form>`);
     $("#m-kind").value = m.kind;
-    $("#m-status").value = m.status;
   }
 
   function chatForm(i, personId, people) {
     i = i || { date: state.today, mode: "chat", mood: "" };
-    const personPicker = people ? `
-      <div class="field"><label for="c-person">Person<span class="req">Required</span></label>
-        <select id="c-person" name="person_id" required>${people.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>` : "";
-    openModal(`
-      ${modalHead(i.id ? "Edit conversation" : "Log a conversation", "会話の記録")}
-      <p class="lead">Write down what you talked about so you remember next time.</p>
+    openModal(i.id ? "Edit conversation" : "Log a conversation", `
       <form data-form="chat" data-id="${i.id || ""}" data-person="${personId || ""}">
-        ${personPicker}
-        <div class="row2">
-          <div class="field"><label for="c-date">Date<span class="req">Required</span></label><input id="c-date" type="date" name="date" value="${esc(i.date)}" required></div>
-          <div class="field"><label for="c-mode">Type</label><select id="c-mode" name="mode">${Object.entries(MODES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
-        </div>
-        <div class="field"><span class="label">How they seemed</span>
-          <div class="segmented">${MOODS.map((mo) => `<button type="button" class="${i.mood === mo ? "on" : ""}" data-action="pick-mood" data-v="${mo}">${mo}</button>`).join("")}</div>
-          <input type="hidden" name="mood" value="${esc(i.mood)}"></div>
-        <div class="field"><label for="c-topics">Topics</label><textarea id="c-topics" name="topics" maxlength="5000" placeholder="New job, the cat's vet visit, plans for the holidays…" autofocus>${esc(i.topics)}</textarea></div>
-        <div class="field"><label for="c-follow">Ask about next time</label><input id="c-follow" type="text" name="follow_up" maxlength="2000" value="${esc(i.follow_up)}" placeholder="How the interview went"></div>
-        ${modalActions()}
-      </form>`);
-    $("#c-mode").value = i.mode || "chat";
+        <table class="ftable">
+          ${people ? frow("Person", `<select id="c-person" name="person_id" required>${people.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>`, true) : ""}
+          ${frow("Date", `<input type="date" name="date" value="${esc(i.date)}" required>`, true)}
+          ${frow("Type", `<span class="radios">${Object.entries(MODES).map(([k, v]) => `<label><input type="radio" name="mode" value="${k}" ${(i.mode || "chat") === k ? "checked" : ""}> ${v}</label>`).join("")}</span>`)}
+          ${frow("Mood", `<span class="radios"><label><input type="radio" name="mood" value="" ${!i.mood ? "checked" : ""}> -</label>${MOODS.map((mo) => `<label><input type="radio" name="mood" value="${mo}" ${i.mood === mo ? "checked" : ""}> ${mo}</label>`).join("")}</span>`, false, "How they seemed.")}
+          ${frow("Topics", `<textarea name="topics" maxlength="5000" autofocus>${esc(i.topics)}</textarea>`, false, "What you talked about. Future you will thank you.")}
+          ${frow("Ask next time", `<input type="text" name="follow_up" maxlength="2000" value="${esc(i.follow_up)}">`, false, "Shown on the home page until your next conversation.")}
+        </table>
+        ${submitRow()}
+      </form>`, { wide: true });
     if (personId && $("#c-person")) $("#c-person").value = personId;
   }
 
   function dateForm(d, personId) {
     d = d || { yearly: 1 };
-    openModal(`
-      ${modalHead(d.id ? "Edit date" : "Add a date", "記念日")}
-      <p class="lead">Anniversaries, exams, operations, trips, first days at work…</p>
+    openModal(d.id ? "Edit date" : "Add a date", `
       <form data-form="date" data-id="${d.id || ""}" data-person="${personId || ""}">
-        <div class="field"><label for="d-label">Title<span class="req">Required</span></label><input id="d-label" type="text" name="label" required maxlength="200" value="${esc(d.label)}" placeholder="Wedding anniversary" autofocus></div>
-        <div class="row2">
-          <div class="field"><label for="d-date">Date<span class="req">Required</span></label><input id="d-date" type="date" name="date" required value="${esc(String(d.date || "").startsWith("--") ? "2000" + d.date.slice(1) : d.date)}"></div>
-          <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" name="yearly" ${d.yearly ? "checked" : ""}> Repeats every year</label></div>
-        </div>
-        <div class="field"><label for="d-notes">Notes</label><input id="d-notes" type="text" name="notes" maxlength="2000" value="${esc(d.notes)}"></div>
-        ${modalActions()}
+        <table class="ftable">
+          ${frow("Title", `<input type="text" name="label" required maxlength="200" value="${esc(d.label)}" autofocus>`, true, "e.g. wedding anniversary, exam, operation, first day at work")}
+          ${frow("Date", `<input type="date" name="date" required value="${esc(String(d.date || "").startsWith("--") ? "2000" + d.date.slice(1) : d.date)}">`, true)}
+          ${frow("Repeat", `<label class="check"><input type="checkbox" name="yearly" ${d.yearly ? "checked" : ""}> Every year</label>`)}
+          ${frow("Notes", `<input type="text" name="notes" maxlength="2000" value="${esc(d.notes)}">`)}
+        </table>
+        ${submitRow()}
       </form>`);
   }
 
@@ -986,24 +946,21 @@
     const everyone = await getPeople();
     const people = everyone.filter((p) => p.id !== personId);
     const me = everyone.find((p) => p.id === personId);
-    if (!people.length) return toast("Add another person first.");
+    if (!people.length) return toast("Add another person first.", true);
     let otherId = "", kind = "friend";
     if (rel) {
       const role = relRole(rel, personId);
       otherId = role.otherId; kind = role.kind;
     }
     const kinds = Object.entries(REL).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
-    openModal(`
-      ${modalHead(rel ? "Edit connection" : "Add a connection", "相関")}
-      <p class="lead">Who is connected to ${esc(dname(me))}?</p>
+    openModal(rel ? "Edit connection" : `Add a connection for ${esc(dname(me))}`, `
       <form data-form="rel" data-id="${rel ? rel.id : ""}" data-person="${personId}">
-        <div class="row2">
-          <div class="field"><label for="r-other">Person</label>
-            <select id="r-other" name="other" required>${people.map((p) => `<option value="${p.id}">${esc(p.name)}${p.nickname ? ` (${esc(p.nickname)})` : ""}</option>`).join("")}</select></div>
-          <div class="field"><label for="r-kind">is ${esc(dname(me))}'s…</label><select id="r-kind" name="kind">${kinds}</select></div>
-        </div>
-        <div class="field"><label for="r-notes">Notes</label><input id="r-notes" type="text" name="notes" maxlength="2000" value="${esc(rel ? rel.notes : "")}"></div>
-        ${modalActions()}
+        <table class="ftable">
+          ${frow("Person", `<select id="r-other" name="other" required>${people.map((p) => `<option value="${p.id}">${esc(p.name)}${p.nickname ? ` (${esc(p.nickname)})` : ""}</option>`).join("")}</select>`, true)}
+          ${frow("Relationship", `is ${esc(dname(me))}'s <select id="r-kind" name="kind" class="short" style="width:auto">${kinds}</select>`, true)}
+          ${frow("Notes", `<input type="text" name="notes" maxlength="2000" value="${esc(rel ? rel.notes : "")}">`)}
+        </table>
+        ${submitRow()}
       </form>`);
     if (otherId) $("#r-other").value = otherId;
     $("#r-kind").value = kind;
@@ -1015,19 +972,14 @@
     const cur = currentPersonId();
     const opts = people.slice().sort((a, b) => a.name.localeCompare(b.name))
       .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
-    openModal(`
-      ${modalHead("Jot down", "メモ")}
-      <p class="lead">A quick note before you forget.</p>
+    openModal("Jot down", `
       <form data-form="jot">
-        <div class="row2">
-          <div class="field"><label for="j-person">Person</label><select id="j-person" name="person_id">${opts}</select></div>
-          <div class="field"><label for="j-kind">Category</label><select id="j-kind" name="kind">
-            <option value="__chat">Conversation (today)</option>
-            ${KIND_ORDER.map((k) => `<option value="${k}">${MEMORY_KINDS[k].label}（${MEMORY_KINDS[k].jp}）</option>`).join("")}
-          </select></div>
-        </div>
-        <div class="field"><label for="j-text">Note<span class="req">Required</span></label><textarea id="j-text" name="text" required maxlength="1000" autofocus placeholder="Training for a half-marathon in the spring"></textarea></div>
-        ${modalActions()}
+        <table class="ftable">
+          ${frow("Person", `<select id="j-person" name="person_id">${opts}</select>`)}
+          ${frow("Category", `<select id="j-kind" name="kind"><option value="__chat">Conversation (today)</option>${KIND_ORDER.map((k) => `<option value="${k}">${MEMORY_KINDS[k].label}</option>`).join("")}</select>`)}
+          ${frow("Note", `<textarea name="text" required maxlength="1000" autofocus></textarea>`, true)}
+        </table>
+        ${submitRow()}
       </form>`);
     if (cur) $("#j-person").value = cur;
     $("#j-kind").value = "interest";
@@ -1064,9 +1016,9 @@
       toast("Note added.");
       const kind = v.kind;
       await render(true);
-      const sel = $(".quick-add select");
+      const sel = $(".quick select");
       if (sel) sel.value = kind;
-      const inp = $(".quick-add input[name=text]");
+      const inp = $(".quick input[name=text]");
       if (inp) inp.focus();
     },
     async memory(form, v) {
@@ -1154,14 +1106,9 @@
         await api("DELETE", `/api/interactions/${el.dataset.id}`); render(true);
       }
     },
-    "pick-mood": (el) => {
-      const input = $("input[name=mood]");
-      const on = !el.classList.contains("on");
-      $$("[data-action=pick-mood]").forEach((b) => b.classList.remove("on"));
-      if (on) el.classList.add("on");
-      input.value = on ? el.dataset.v : "";
-    },
     "new-date": (el) => dateForm(null, +el.dataset.person),
+    "new-memory": (el) => memoryForm(null, +el.dataset.person),
+    "cal-move": (el) => { state.calOffset = Math.max(0, Math.min(11, (state.calOffset || 0) + +el.dataset.v)); viewCalendar(); },
     "edit-date": (el) => dateForm(findIn(state.current.dates, el.dataset.id), state.current.id),
     "delete-date": async (el) => {
       if (await confirmBox("Delete this date?", findIn(state.current.dates, el.dataset.id).label)) {
@@ -1219,7 +1166,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !$("#modal").hidden) closeModal();
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-    if (!typing && $("#modal").hidden && !$("#topbar").hidden) {
+    if (!typing && $("#modal").hidden && !$("#hd").hidden) {
       if (e.key === "/") { e.preventDefault(); $("#search-input").focus(); }
       else if (e.key === "n") { e.preventDefault(); quickJot().catch(handleError); }
     }
@@ -1246,12 +1193,12 @@
       keepScroll = false;
     }
     lastRoute = hash;
-    $$("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.nav === (section || "home") || (section === "person" && a.dataset.nav === "people")));
+    $$("#nav li").forEach((li) => li.classList.toggle("active", li.dataset.nav === (section || "home") || (section === "person" && li.dataset.nav === "people")));
     if (!keepScroll) loading();
     try {
       switch (section) {
         case "": case undefined: await viewHome(); break;
-        case "people": await viewPeople(); break;
+        case "people": await viewPeople(arg); break;
         case "person": await viewPerson(+arg); break;
         case "web": await viewWeb(); break;
         case "calendar": await viewCalendar(); break;
@@ -1262,7 +1209,7 @@
       window.scrollTo(0, keepScroll ? scroll : 0);
     } catch (err) {
       if (err instanceof AuthError) return viewLogin();
-      app().innerHTML = `<div class="panel">${empty(err.message || "Couldn't load this page.")}<a class="btn arrow" href="#/">Back to home</a></div>`;
+      app().innerHTML = box("Error", `${empty(err.message || "Couldn't load this page.")}<p><a class="more" href="#/">Back to home</a></p>`);
     }
   }
 
@@ -1278,13 +1225,14 @@
 
   function setTodayLabel() {
     const d = toDate(state.today);
-    if (d) $("#today-label").textContent = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${WD_JP[d.getDay()]}）`;
+    if (d) $("#today-label").textContent = `Today: ${ymd(state.today)}(${WD[d.getDay()]})`;
   }
 
   async function boot() {
     try {
       const meta = await api("GET", "/api/meta");
       state.today = meta.today;
+      authEnabled = !!meta.auth;
     } catch (err) {
       if (err instanceof AuthError) return viewLogin();
     }

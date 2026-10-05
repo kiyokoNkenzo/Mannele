@@ -5,10 +5,19 @@ things people tell you — their interests, important dates, what they're going
 through, gift ideas, and what you last talked about — so you can show up for the
 people you love. Think personal CRM, minus the sales-funnel creepiness.
 
-The interface takes its cues from Japanese websites: washi-paper background,
-vermilion and indigo accents, bilingual section headings (Upcoming 近日の予定),
-news-style date lists (2026.10.14), breadcrumbs, spec tables and a 相関図-style
-relationship chart, with small anime-style portraits for each person.
+The interface is modelled on mid-2000s Japanese social and blog sites rather
+than a modern app template:
+
+- **mixi (PC site, c. 2005–2010)**: fixed-width three-column layout, boxes with
+  an orange header band, a 3×3 friend photo grid with "Name (n)", a two-column
+  profile table with shaded label cells, dated lists ("10/05(Sun) ・ title (name)")
+  and ★ birthday notices.
+- **Ameblo / Hatena blog sidebars**: the mini calendar with Sundays in red and
+  Saturdays in blue, "more »" links, a centred copyright footer.
+- **TV drama / anime 人物相関図**: the relationship chart, with portraits on name
+  plates and coloured arrows carrying short labels.
+
+Each person gets a small anime-style portrait you design yourself.
 
 ## Features
 
