@@ -1,0 +1,9 @@
+{
+  "name": "Mannele — memory garden",
+  "short_name": "Mannele",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff0f6",
+  "theme_color": "#ffd6e7",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

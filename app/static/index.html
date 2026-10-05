@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mannele ✿ little memory garden</title>
+  <meta name="description" content="A private, cozy memory book for the people you love.">
+  <meta name="theme-color" content="#ffd6e7">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="petal-layer" aria-hidden="true"><div id="petals"></div></div>
+
+  <header class="topbar" id="topbar" hidden>
+    <a class="brand" href="#/">
+      <span class="brand-mark" aria-hidden="true">✿</span>
+      <span class="brand-name">Mannele</span>
+      <span class="brand-sub">memory garden</span>
+    </a>
+    <nav class="nav" id="nav">
+      <a href="#/" data-nav="home"><span aria-hidden="true">🏡</span><span>Home</span></a>
+      <a href="#/people" data-nav="people"><span aria-hidden="true">🌸</span><span>Friends</span></a>
+      <a href="#/web" data-nav="web"><span aria-hidden="true">🕸️</span><span>Web</span></a>
+      <a href="#/calendar" data-nav="calendar"><span aria-hidden="true">📅</span><span>Dates</span></a>
+      <a href="#/settings" data-nav="settings"><span aria-hidden="true">⚙️</span><span>Settings</span></a>
+    </nav>
+    <form class="search" id="search-form" role="search">
+      <input id="search-input" type="search" placeholder="Search memories…" aria-label="Search memories" autocomplete="off">
+    </form>
+  </header>
+
+  <main id="app" class="app" tabindex="-1"></main>
+
+  <button class="fab" id="fab" data-action="quick-jot" title="Jot something down" hidden>
+    <span aria-hidden="true">✎</span><span class="fab-label">Jot it down</span>
+  </button>
+
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button class="modal-close" data-action="close-modal" aria-label="Close">×</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="/avatar.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

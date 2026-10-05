@@ -1,0 +1,22 @@
+services:
+  mannele:
+    build: .
+    image: mannele:latest
+    container_name: mannele
+    restart: unless-stopped
+    ports:
+      # Bound to localhost only — your memories stay on your machine.
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Optional: protect the garden with a password.
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      # Set to 1 to plant a few demo friends on first start.
+      SEED_DEMO: ${SEED_DEMO:-0}
+      # Set to 1 if you serve Mannele over HTTPS (reverse proxy).
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - mannele-data:/data
+
+volumes:
+  mannele-data:
