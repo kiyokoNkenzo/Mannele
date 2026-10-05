@@ -3,39 +3,53 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mannele ✿ little memory garden</title>
-  <meta name="description" content="A private, cozy memory book for the people you love.">
-  <meta name="theme-color" content="#ffd6e7">
+  <title>Mannele｜まんねれ — relationship notebook</title>
+  <meta name="description" content="A private notebook for the people in your life.">
+  <meta name="theme-color" content="#f6f4ef">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div class="petal-layer" aria-hidden="true"><div id="petals"></div></div>
-
-  <header class="topbar" id="topbar" hidden>
-    <a class="brand" href="#/">
-      <span class="brand-mark" aria-hidden="true">✿</span>
-      <span class="brand-name">Mannele</span>
-      <span class="brand-sub">memory garden</span>
-    </a>
-    <nav class="nav" id="nav">
-      <a href="#/" data-nav="home"><span aria-hidden="true">🏡</span><span>Home</span></a>
-      <a href="#/people" data-nav="people"><span aria-hidden="true">🌸</span><span>Friends</span></a>
-      <a href="#/web" data-nav="web"><span aria-hidden="true">🕸️</span><span>Web</span></a>
-      <a href="#/calendar" data-nav="calendar"><span aria-hidden="true">📅</span><span>Dates</span></a>
-      <a href="#/settings" data-nav="settings"><span aria-hidden="true">⚙️</span><span>Settings</span></a>
+  <header class="site-header" id="topbar" hidden>
+    <div class="utility">
+      <div class="inner">
+        <span id="today-label"></span>
+        <span class="utility-right">Private notebook ・ 個人用</span>
+      </div>
+    </div>
+    <div class="masthead">
+      <div class="inner">
+        <a class="brand" href="#/">
+          <span class="hanko" aria-hidden="true">縁</span>
+          <span class="brand-text"><b>Mannele</b><small>まんねれ ・ relationship notebook</small></span>
+        </a>
+        <form class="search" id="search-form" role="search">
+          <input id="search-input" type="search" placeholder="Search…" aria-label="Search" autocomplete="off">
+          <button type="submit">Search</button>
+        </form>
+        <button class="btn primary jot" data-action="quick-jot"><span aria-hidden="true">＋</span> Jot down</button>
+      </div>
+    </div>
+    <nav class="gnav" id="nav">
+      <div class="inner">
+        <a href="#/" data-nav="home"><b>Home</b><small>ホーム</small></a>
+        <a href="#/people" data-nav="people"><b>People</b><small>人々</small></a>
+        <a href="#/web" data-nav="web"><b>Connections</b><small>相関図</small></a>
+        <a href="#/calendar" data-nav="calendar"><b>Dates</b><small>暦</small></a>
+        <a href="#/settings" data-nav="settings"><b>Settings</b><small>設定</small></a>
+      </div>
     </nav>
-    <form class="search" id="search-form" role="search">
-      <input id="search-input" type="search" placeholder="Search memories…" aria-label="Search memories" autocomplete="off">
-    </form>
   </header>
 
-  <main id="app" class="app" tabindex="-1"></main>
+  <main id="app" class="app inner" tabindex="-1"></main>
 
-  <button class="fab" id="fab" data-action="quick-jot" title="Jot something down" hidden>
-    <span aria-hidden="true">✎</span><span class="fab-label">Jot it down</span>
-  </button>
+  <footer class="site-footer" id="footer" hidden>
+    <div class="inner">
+      <span><span class="hanko sm" aria-hidden="true">縁</span> Mannele — kept on your own machine.</span>
+      <a href="#" data-action="page-top">▲ Page top</a>
+    </div>
+  </footer>
 
   <div class="modal-backdrop" id="modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">

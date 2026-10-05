@@ -896,7 +896,7 @@ class Handler(BaseHTTPRequestHandler):
                 throttle_login(self.client_address[0])
                 pw = str(body.get("password") or "")
                 if not hmac.compare_digest(pw.encode(), APP_PASSWORD.encode()):
-                    raise ApiError(401, "that's not the secret word ( ; ω ; )")
+                    raise ApiError(401, "incorrect password")
                 cookie = (
                     f"mannele_session={make_token()}; Path=/; HttpOnly; SameSite=Strict; "
                     f"Max-Age={SESSION_DAYS * 86400}"
@@ -937,7 +937,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": f"database constraint: {e}"})
         except Exception as e:  # pragma: no cover - last resort
             self.log_error("unhandled error: %r", e)
-            self.send_json(500, {"error": "something went wrong (｡•́︿•̀｡)"})
+            self.send_json(500, {"error": "something went wrong"})
 
     def serve_static(self):
         path = urlparse(self.path).path
@@ -988,9 +988,9 @@ def main():
     if os.environ.get("SEED_DEMO") == "1" and not one("SELECT id FROM people LIMIT 1"):
         from seed import seed_demo
         seed_demo()
-        print("Seeded demo friends ✿")
+        print("Seeded demo people")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"✿ Mannele is listening on http://{HOST}:{PORT}  (auth: {'on' if APP_PASSWORD else 'off'})")
+    print(f"Mannele is listening on http://{HOST}:{PORT}  (auth: {'on' if APP_PASSWORD else 'off'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

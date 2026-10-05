@@ -1,22 +1,26 @@
-# ✿ Mannele — little memory garden
+# Mannele｜まんねれ — relationship notebook
 
 A private, cozy **relationship memory assistant**. Mannele quietly remembers the
 things people tell you — their interests, important dates, what they're going
 through, gift ideas, and what you last talked about — so you can show up for the
-people you love. Think personal CRM, minus the sales-funnel creepiness, plus
-pastel anime vibes. (◕‿◕✿)
+people you love. Think personal CRM, minus the sales-funnel creepiness.
+
+The interface takes its cues from Japanese websites: washi-paper background,
+vermilion and indigo accents, bilingual section headings (Upcoming 近日の予定),
+news-style date lists (2026.10.14), breadcrumbs, spec tables and a 相関図-style
+relationship chart, with small anime-style portraits for each person.
 
 ## Features
 
-- 🌸 **People** with hand-made chibi avatars (hair, eyes, cat ears, bows, glasses…), nicknames, pronouns, circles, birthdays (year optional) and "how we met".
-- 💭 **Memory jar** per person: going through 🌧️, interests 🌟, loves 💖, dislikes 🙅, gift ideas 🎁, dreams 🌱, notes 📝 — pin them, resolve worries, mark gifts as given.
-- ☕ **Chat log**: what you talked about, the vibe, and what to follow up on next time.
-- 🗓️ **Special days**: birthdays, anniversaries and one-off moments, with "turning 30" / "5th anniversary" countdowns.
-- 🕸️ **Friendship web**: link people (siblings, partners, roommates, coworkers, pets…) and explore them in a draggable graph with you in the middle.
-- 🏡 **Home dashboard**: coming up, who to check in on, follow-ups, people you haven't talked to in a while (per-person check-in rhythm), a gift idea jar and recent chats.
-- 🔎 Search across everything · ✎ quick "Jot it down" button (`n` shortcut, `/` to search).
-- 🌙 Sakura-day and starry-night themes, falling petals (respects reduced motion), works on phones.
-- 💾 JSON backup/restore. 🔐 Optional password.
+- **People** with a small portrait you design (hair, eyes, accessories…), nickname, pronouns, group, birthday (year optional) and how you met.
+- **Notes** per person, by category: worries, interests, likes, dislikes, gift ideas, goals, notes. Pin them, mark worries resolved, mark gifts given.
+- **Conversation log**: what you talked about, how they seemed, and what to ask next time.
+- **Dates**: birthdays, anniversaries and one-off events, with "turning 30" / "5th" countdowns.
+- **Connections (相関図)**: link people (siblings, partners, roommates, coworkers, pets…) and explore them in a draggable chart with you in the centre.
+- **Home**: upcoming dates, who to check in on, follow-ups, people you haven't talked to in a while (per-person reminder interval), gift ideas and recent conversations.
+- Search across everything, quick "Jot down" button (`n` shortcut, `/` to search).
+- Light and dark themes, works on phones.
+- JSON backup/restore. Optional password.
 
 ## Privacy
 
@@ -31,7 +35,7 @@ docker compose up -d --build
 # open http://localhost:8080
 ```
 
-With demo friends and a password:
+With example people and a password:
 
 ```bash
 SEED_DEMO=1 APP_PASSWORD='secret word' docker compose up -d --build
@@ -47,7 +51,7 @@ docker run -d -p 127.0.0.1:8080:8080 -v mannele-data:/data --name mannele mannel
 | Variable        | Default | Meaning                                              |
 | --------------- | ------- | ---------------------------------------------------- |
 | `APP_PASSWORD`  | *(none)*| Require this password to open the app                |
-| `SEED_DEMO`     | `0`     | `1` plants demo friends on first start (empty DB)    |
+| `SEED_DEMO`     | `0`     | `1` adds example people on first start (empty DB)    |
 | `COOKIE_SECURE` | `0`     | `1` marks the session cookie `Secure` (HTTPS only)   |
 | `TZ`            | `UTC`   | Your timezone, so "today" and countdowns are right   |
 | `PORT`          | `8080`  | Port inside the container                            |
@@ -66,7 +70,7 @@ python -m unittest discover tests                          # from the repo root
 
 ```
 app/server.py        JSON API, auth, static file server
-app/seed.py          demo friends
-app/static/          single-page app (app.js, avatar.js chibi generator, style.css)
+app/seed.py          example people
+app/static/          single-page app (app.js, avatar.js portrait generator, style.css)
 tests/test_api.py    end-to-end API tests
 ```

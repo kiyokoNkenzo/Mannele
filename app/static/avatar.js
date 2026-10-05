@@ -5,7 +5,7 @@
   const OPTIONS = {
     hair: ["#3b3b58", "#5a3d2b", "#a0643c", "#f2c46d", "#f4a7c4", "#8e6cd8", "#6cc3b5", "#7fb4f0", "#e35d6a", "#d9d9e3", "#2f2f2f", "#ff9a5c"],
     skin: ["#ffe7d6", "#ffe3d3", "#f6d2b8", "#e8b896", "#d9a982", "#b67d58", "#8a5a3c", "#f3d5c0"],
-    bg: ["#ffe9f3", "#efe6ff", "#e3f7f2", "#e6f0ff", "#fff4dc", "#ffe8dc", "#f0f0f0", "#e9ffe0"],
+    bg: ["#efe9e1", "#e6eaf0", "#e8eee6", "#f1e6e4", "#e9e7f0", "#ecebe8", "#f3eedf", "#e2e8ea"],
     style: ["short", "bob", "long", "twintails", "bun", "spiky", "ponytail", "fluffy"],
     eyes: ["sparkle", "happy", "sleepy", "wink", "round", "starry"],
     mouth: ["smile", "cat", "open", "tiny"],
@@ -177,8 +177,8 @@
     const winkRight = a.eyes === "wink";
     const clip = "avc" + (++clipCounter);
     return `<svg class="avatar-svg" viewBox="0 0 100 100"${size} xmlns="http://www.w3.org/2000/svg" role="img">${title}` +
-      `<clipPath id="${clip}"><circle cx="50" cy="50" r="50"/></clipPath><g clip-path="url(#${clip})">` +
-      `<circle cx="50" cy="50" r="50" fill="${a.bg}"/>` +
+      `<clipPath id="${clip}"><rect width="100" height="100"/></clipPath><g clip-path="url(#${clip})">` +
+      `<rect width="100" height="100" fill="${a.bg}"/>` +
       accessoryBack(a, h, hd) +
       backHair(a, h, hd) +
       `<path d="M26 100 Q28 80 50 80 Q72 80 74 100 Z" fill="${shirt}"/>` +
