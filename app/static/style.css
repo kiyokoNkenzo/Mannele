@@ -193,6 +193,18 @@ table { border-collapse: collapse; }
 .actions a { display: block; padding: 3px 4px 3px 14px; position: relative; }
 .actions a::before { content: ""; position: absolute; left: 3px; top: 8px; border: 3.5px solid transparent; border-left: 5px solid var(--orange); }
 
+/* photo album under the avatar */
+.thumbs { display: grid; grid-template-columns: repeat(3, 58px); gap: 5px; justify-content: center; margin-top: 6px; }
+.thumb { display: block; width: 58px; height: 58px; border: 1px solid var(--line); padding: 2px; background: var(--bg); }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.thumb:hover { border-color: var(--orange); }
+.thumb.add { border: 1px dashed var(--orange-line); color: var(--orange); text-align: center; font-size: 18px; line-height: 1.1; padding-top: 10px; text-decoration: none !important; }
+.thumb.add span { display: block; font-size: 10.5px; }
+.thumbs-note { text-align: center; margin: 2px 0 0; font-size: 10.5px; }
+.ph-preview img { display: block; max-width: 220px; max-height: 160px; margin-top: 6px; border: 1px solid var(--line); padding: 2px; }
+.viewer { text-align: center; background: var(--outer); border: 1px solid var(--line); padding: 6px; }
+.viewer img { max-width: 100%; max-height: 62vh; display: inline-block; vertical-align: middle; }
+
 /* tabs */
 .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 2px solid var(--orange); margin-bottom: 6px; padding-left: 4px; }
 .tabs button {

@@ -154,6 +154,68 @@ class ApiTests(unittest.TestCase):
         self.assertGreaterEqual(dash["counts"]["people"], 5)
 
 
+# 1x1 transparent PNG
+PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
+
+class PhotoTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = start()
+        cls.c = Client(cls.httpd.server_address[1])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def files(self):
+        return sorted(f.name for f in server.PHOTO_DIR.iterdir())
+
+    def test_upload_view_limit_delete(self):
+        c = self.c
+        st, p = c.req("POST", "/api/people", {"name": "Photo Person"})
+        st, ph = c.req("POST", f"/api/people/{p['id']}/photos", {"data": "data:image/png;base64," + PNG_B64, "caption": "beach"})
+        self.assertEqual(st, 200, ph)
+        self.assertEqual(ph["caption"], "beach")
+        self.assertNotIn("file", ph)
+
+        st, raw = c.req("GET", f"/api/photos/{ph['id']}")
+        self.assertEqual(st, 200)
+        self.assertTrue(raw.startswith(b"\x89PNG"))
+
+        st, full = c.req("GET", f"/api/people/{p['id']}")
+        self.assertEqual([x["id"] for x in full["photos"]], [ph["id"]])
+
+        # not an image
+        st, err = c.req("POST", f"/api/people/{p['id']}/photos", {"data": "aGVsbG8gd29ybGQ="})
+        self.assertEqual(st, 400, err)
+
+        # limit of 3
+        for _ in range(2):
+            self.assertEqual(c.req("POST", f"/api/people/{p['id']}/photos", {"data": PNG_B64})[0], 200)
+        self.assertEqual(c.req("POST", f"/api/people/{p['id']}/photos", {"data": PNG_B64})[0], 400)
+
+        st, upd = c.req("PUT", f"/api/photos/{ph['id']}", {"caption": "at the beach"})
+        self.assertEqual(upd["caption"], "at the beach")
+
+        st, _ = c.req("DELETE", f"/api/photos/{ph['id']}")
+        self.assertEqual(st, 200)
+        self.assertEqual(c.req("GET", f"/api/photos/{ph['id']}")[0], 404)
+
+        # export includes photos; import restores them as new files
+        st, exp = c.req("GET", "/api/export")
+        self.assertTrue(any(x["person_id"] == p["id"] for x in exp["photos"]))
+        before = len(self.files())
+        st, _ = c.req("POST", "/api/import", {"data": exp})
+        self.assertEqual(st, 200)
+        self.assertGreater(len(self.files()), before)
+
+        # deleting the person removes its files from disk
+        n_files = len(self.files())
+        c.req("DELETE", f"/api/people/{p['id']}")
+        self.assertEqual(len(self.files()), n_files - 2)
+
+
 class AuthTests(unittest.TestCase):
     def test_password_flow(self):
         httpd = start("hunter2")
@@ -164,6 +226,8 @@ class AuthTests(unittest.TestCase):
             self.assertEqual(c.req("POST", "/api/login", {"password": "hunter2"})[0], 200)
             self.assertIsNotNone(c.cookie)
             self.assertEqual(c.req("GET", "/api/people")[0], 200)
+            anon = Client(httpd.server_address[1])
+            self.assertEqual(anon.req("GET", "/api/photos/1")[0], 401)
             c.cookie = "mannele_session=123.abc.def"
             self.assertEqual(c.req("GET", "/api/people")[0], 401)
         finally:

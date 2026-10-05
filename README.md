@@ -22,6 +22,7 @@ Each person gets a small anime-style portrait you design yourself.
 ## Features
 
 - **People** with a small portrait you design (hair, eyes, accessories…), nickname, pronouns, group, birthday (year optional) and how you met.
+- **Photos**: the drawn portrait stays the main picture everywhere, and you can add up to 3 real photos per person (shown under the portrait on their page, click to view, with captions). Photos are resized in the browser before upload, stored as files next to the database, and included in backups.
 - **Notes** per person, by category: worries, interests, likes, dislikes, gift ideas, goals, notes. Pin them, mark worries resolved, mark gifts given.
 - **Conversation log**: what you talked about, how they seemed, and what to ask next time.
 - **Dates**: birthdays, anniversaries and one-off events, with "turning 30" / "5th" countdowns.
@@ -34,7 +35,7 @@ Each person gets a small anime-style portrait you design yourself.
 ## Privacy
 
 - No accounts, no cloud, no analytics, no external fonts or CDNs — the page never talks to anyone but your own server (enforced by a strict Content-Security-Policy).
-- All data lives in one SQLite file (`/data/mannele.db`) in a Docker volume.
+- All data lives in the Docker volume: one SQLite file (`/data/mannele.db`) plus uploaded photos in `/data/photos/`. Photos are only served to a logged-in session when a password is set.
 - The compose file binds to `127.0.0.1` only. Set `APP_PASSWORD` if you expose it on your network, and put it behind HTTPS (`COOKIE_SECURE=1`) if you expose it further.
 
 ## Run it

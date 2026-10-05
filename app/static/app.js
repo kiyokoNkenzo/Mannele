@@ -442,6 +442,11 @@
         <span class="ops" style="font-size:11px"><a href="#" data-action="edit-rel" data-id="${r.id}">edit</a><a href="#" data-action="delete-rel" data-id="${r.id}">delete</a></span></li>`;
     }).join("");
 
+    // photo album: up to 3 real photos under the avatar (like the small extra photos on mixi profiles)
+    const photos = p.photos || [];
+    const thumbs = photos.map((ph, i) => `<a href="#" class="thumb" data-action="view-photo" data-i="${i}" title="${esc(ph.caption || "Photo")}"><img src="/api/photos/${ph.id}" alt="${esc(ph.caption || `Photo of ${p.name}`)}" loading="lazy"></a>`).join("")
+      + (photos.length < MAX_PHOTOS ? `<a href="#" class="thumb add" data-action="add-photo" data-person="${p.id}" title="Add a photo">＋<span>photo</span></a>` : "");
+
     const notices = [];
     if (p.next_birthday_days != null && p.next_birthday_days <= 14) notices.push(`<li>${esc(dname(p))}'s birthday is ${p.next_birthday_days === 0 ? "today!" : `on ${md(p.next_birthday)} (${until(p.next_birthday_days)})`}</li>`);
     if (p.overdue) notices.push(`<li>It's been a while — ${p.last_contact ? `last conversation ${ago(p.days_since_contact)}` : "no conversations logged yet"}.</li>`);
@@ -453,6 +458,8 @@
           <div>
             ${photo(p, 180)}
             <p class="side-name">${esc(p.name)} (${p.memory_count})${p.nickname ? `<small>“${esc(p.nickname)}”</small>` : ""}</p>
+            <div class="thumbs">${thumbs}</div>
+            <p class="st thumbs-note">Photos ${photos.length}/${MAX_PHOTOS}</p>
           </div>
           <div class="col">
             ${box("Menu", `<ul class="actions">
@@ -460,6 +467,7 @@
               <li><a href="#" data-action="new-memory" data-person="${p.id}">Add a note</a></li>
               <li><a href="#" data-action="new-date" data-person="${p.id}">Add a date</a></li>
               <li><a href="#" data-action="new-rel" data-person="${p.id}">Add a connection</a></li>
+              <li><a href="#" data-action="add-photo" data-person="${p.id}">Add a photo</a></li>
               <li><a href="#" data-action="edit-person" data-id="${p.id}">Edit profile</a></li>
               <li><a href="#" data-action="delete-person" data-id="${p.id}">Delete this person</a></li></ul>`)}
             ${box("Connections", rels ? `<div class="pgrid">${rels}</div>` : empty("None yet."), { n: p.relationships.length, foot: `<a class="more" href="#/web">Relationship chart</a>` })}
@@ -985,9 +993,74 @@
     $("#j-kind").value = "interest";
   }
 
+  const MAX_PHOTOS = 3;
+
+  /** Shrink a picked image in the browser (max 1600px, JPEG) so uploads stay small. GIFs are kept as-is. */
+  async function prepareImage(file) {
+    if (!file || !/^image\//.test(file.type)) throw new Error("Please choose an image file.");
+    if (file.type === "image/gif" && file.size < 6e6) {
+      return await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+    }
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: "from-image" }); }
+    catch (_) { throw new Error("This image format can't be read by your browser. Try JPEG or PNG."); }
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.86);
+  }
+
+  function photoForm(personId) {
+    const p = state.current && state.current.id === personId ? state.current : null;
+    if (p && (p.photos || []).length >= MAX_PHOTOS) return toast(`Up to ${MAX_PHOTOS} photos per person. Delete one first.`, true);
+    openModal(`Add a photo${p ? ` of ${esc(p.name)}` : ""}`, `
+      <form data-form="photo" data-person="${personId}">
+        <table class="ftable">
+          ${frow("Photo", `<input type="file" name="file" id="ph-file" accept="image/*" required><div id="ph-preview" class="ph-preview"></div>`, true, "JPEG, PNG, GIF or WebP. Large photos are resized before saving.")}
+          ${frow("Caption", `<input type="text" name="caption" maxlength="200">`, false, "e.g. “Summer trip, 2024”")}
+        </table>
+        <p class="st">The drawn portrait stays the main picture; photos are shown under it on the profile page.</p>
+        ${submitRow("Upload")}
+      </form>`);
+    const form = $("form[data-form=photo]");
+    $("#ph-file").addEventListener("change", async (e) => {
+      form._data = null;
+      $("#ph-preview").innerHTML = "";
+      try {
+        form._data = await prepareImage(e.target.files[0]);
+        $("#ph-preview").innerHTML = `<img src="${form._data}" alt="Preview">`;
+      } catch (err) { toast(err.message, true); e.target.value = ""; }
+    });
+  }
+
+  function photoViewer(i) {
+    const p = state.current;
+    const list = p.photos || [];
+    if (!list.length) return;
+    i = (i + list.length) % list.length;
+    const ph = list[i];
+    openModal(`${esc(p.name)} — photo ${i + 1} / ${list.length}`, `
+      <div class="viewer"><img src="/api/photos/${ph.id}" alt="${esc(ph.caption || `Photo of ${p.name}`)}"></div>
+      <p class="st" style="text-align:center">Added ${ymd(ph.created_at)}</p>
+      <form data-form="photo-caption" data-id="${ph.id}">
+        <table class="ftable">${frow("Caption", `<input type="text" name="caption" maxlength="200" value="${esc(ph.caption)}">`)}</table>
+        <div class="submit-row">
+          ${list.length > 1 ? `<button type="button" class="btn" data-action="view-photo" data-i="${i - 1}">« Prev</button>` : ""}
+          <button type="submit" class="btn orange">Save caption</button>
+          <button type="button" class="btn" data-action="delete-photo" data-id="${ph.id}">Delete photo</button>
+          ${list.length > 1 ? `<button type="button" class="btn" data-action="view-photo" data-i="${i + 1}">Next »</button>` : ""}
+        </div>
+      </form>`, { wide: true });
+  }
+
   const formValues = (form) => {
     const out = {};
-    new FormData(form).forEach((v, k) => { out[k] = typeof v === "string" ? v.trim() : v; });
+    new FormData(form).forEach((v, k) => { if (typeof v === "string") out[k] = v.trim(); });
     $$("input[type=checkbox]", form).forEach((c) => { if (c.name) out[c.name] = c.checked; });
     return out;
   };
@@ -1045,6 +1118,15 @@
       if (form.dataset.id) await api("PUT", `/api/relationships/${form.dataset.id}`, body);
       else await api("POST", "/api/relationships", body);
       closeModal(); toast("Connection saved."); render(true);
+    },
+    async photo(form, v) {
+      const data = form._data || await prepareImage($("#ph-file").files[0]);
+      await api("POST", `/api/people/${form.dataset.person}/photos`, { data, caption: v.caption });
+      closeModal(); toast("Photo added."); render(true);
+    },
+    async "photo-caption"(form, v) {
+      await api("PUT", `/api/photos/${form.dataset.id}`, { caption: v.caption });
+      closeModal(); toast("Caption saved."); render(true);
     },
     async jot(form, v) {
       if (v.kind === "__chat") {
@@ -1108,6 +1190,13 @@
     },
     "new-date": (el) => dateForm(null, +el.dataset.person),
     "new-memory": (el) => memoryForm(null, +el.dataset.person),
+    "add-photo": (el) => photoForm(+el.dataset.person),
+    "view-photo": (el) => photoViewer(+el.dataset.i),
+    "delete-photo": async (el) => {
+      if (await confirmBox("Delete this photo?", "The photo file will be removed from this machine.")) {
+        await api("DELETE", `/api/photos/${el.dataset.id}`); toast("Photo deleted."); render(true);
+      }
+    },
     "cal-move": (el) => { state.calOffset = Math.max(0, Math.min(11, (state.calOffset || 0) + +el.dataset.v)); viewCalendar(); },
     "edit-date": (el) => dateForm(findIn(state.current.dates, el.dataset.id), state.current.id),
     "delete-date": async (el) => {

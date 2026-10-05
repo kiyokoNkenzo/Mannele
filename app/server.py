@@ -5,6 +5,7 @@ single-page app and a small JSON API. Everything stays on your own machine,
 inside the SQLite file in DATA_DIR.
 """
 
+import base64
 import hashlib
 import hmac
 import json
@@ -29,7 +30,11 @@ HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8080"))
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 SESSION_DAYS = 30
-MAX_BODY = 5 * 1024 * 1024
+MAX_BODY = 12 * 1024 * 1024          # regular requests (a photo upload is the largest)
+MAX_IMPORT_BODY = 512 * 1024 * 1024  # backups include photos
+PHOTO_DIR = DATA_DIR / "photos"
+MAX_PHOTOS_PER_PERSON = 3
+MAX_PHOTO_BYTES = 8 * 1024 * 1024
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -106,6 +111,17 @@ CREATE INDEX IF NOT EXISTS idx_dates_person ON dates(person_id);
 CREATE INDEX IF NOT EXISTS idx_interactions_person ON interactions(person_id, date);
 CREATE INDEX IF NOT EXISTS idx_rel_a ON relationships(a_id);
 CREATE INDEX IF NOT EXISTS idx_rel_b ON relationships(b_id);
+
+CREATE TABLE IF NOT EXISTS photos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id   INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    file        TEXT NOT NULL,
+    mime        TEXT NOT NULL,
+    caption     TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_photos_person ON photos(person_id);
 """
 
 CIRCLES = {"family", "partner", "friends", "work", "community", "other"}
@@ -148,9 +164,11 @@ def db():
 
 def init_db():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PHOTO_DIR.mkdir(parents=True, exist_ok=True)
     conn = db()
     conn.executescript(SCHEMA)
     conn.commit()
+    cleanup_photo_files()
 
 
 def now_iso():
@@ -507,6 +525,7 @@ def get_person(pid):
         """, (pid, pid),
     )
     p["upcoming"] = upcoming_dates(366, pid)
+    p["photos"] = [photo_public(r) for r in rows("SELECT * FROM photos WHERE person_id = ? ORDER BY id", (pid,))]
     return p
 
 
@@ -585,6 +604,96 @@ def graph():
     }
 
 
+# --------------------------------------------------------------------------
+# Photos
+# --------------------------------------------------------------------------
+
+PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
+
+
+class RawResponse:
+    """Returned by a route that answers with bytes instead of JSON."""
+
+    def __init__(self, data, mime, cache="private, max-age=86400"):
+        self.data, self.mime, self.cache = data, mime, cache
+
+
+def sniff_image(data):
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def decode_image(value):
+    """Accepts plain base64 or a data: URL; returns (bytes, mime)."""
+    if not isinstance(value, str) or not value:
+        raise ApiError(400, "'data' must be a base64-encoded image")
+    if value.startswith("data:"):
+        value = value.split(",", 1)[-1]
+    if len(value) > MAX_PHOTO_BYTES * 4 // 3 + 16:
+        raise ApiError(413, f"photo is too large (max {MAX_PHOTO_BYTES // (1024 * 1024)} MB)")
+    try:
+        data = base64.b64decode(value, validate=True)
+    except (ValueError, base64.binascii.Error):
+        raise ApiError(400, "'data' is not valid base64")
+    mime = sniff_image(data)
+    if not mime:
+        raise ApiError(400, "only JPEG, PNG, GIF or WebP images are supported")
+    return data, mime
+
+
+def write_photo_file(data, mime):
+    name = secrets.token_hex(16) + PHOTO_TYPES[mime]
+    tmp = PHOTO_DIR / (name + ".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(PHOTO_DIR / name)
+    return name
+
+
+def remove_photo_files(names):
+    for name in names:
+        try:
+            (PHOTO_DIR / name).unlink()
+        except FileNotFoundError:
+            pass
+
+
+def cleanup_photo_files():
+    """Delete files on disk that no photo row points to (e.g. after a crash or cascade delete)."""
+    known = {r["file"] for r in rows("SELECT file FROM photos")}
+    for f in PHOTO_DIR.iterdir():
+        if f.is_file() and f.name not in known:
+            f.unlink()
+
+
+def add_photo(pid, data_b64, caption=""):
+    if not one("SELECT id FROM people WHERE id = ?", (pid,)):
+        raise ApiError(404, "person not found")
+    count = one("SELECT COUNT(*) AS c FROM photos WHERE person_id = ?", (pid,))["c"]
+    if count >= MAX_PHOTOS_PER_PERSON:
+        raise ApiError(400, f"each person can have up to {MAX_PHOTOS_PER_PERSON} photos — delete one first")
+    data, mime = decode_image(data_b64)
+    name = write_photo_file(data, mime)
+    try:
+        return insert("photos", {
+            "person_id": pid, "file": name, "mime": mime,
+            "caption": clean_str(caption, "caption", 200),
+        })
+    except Exception:
+        remove_photo_files([name])
+        raise
+
+
+def photo_public(p):
+    return {k: p[k] for k in ("id", "person_id", "caption", "created_at")}
+
+
 EXPORT_TABLES = ["people", "memories", "dates", "interactions", "relationships"]
 
 
@@ -592,6 +701,16 @@ def export_all():
     data = {"app": "mannele", "version": 1, "exported_at": now_iso()}
     for t in EXPORT_TABLES:
         data[t] = rows(f"SELECT * FROM {t} ORDER BY id")
+    data["photos"] = []
+    for p in rows("SELECT * FROM photos ORDER BY id"):
+        try:
+            raw = (PHOTO_DIR / p["file"]).read_bytes()
+        except FileNotFoundError:
+            continue
+        data["photos"].append({
+            "person_id": p["person_id"], "caption": p["caption"], "mime": p["mime"],
+            "created_at": p["created_at"], "data": base64.b64encode(raw).decode(),
+        })
     return data
 
 
@@ -600,9 +719,12 @@ def import_all(data, replace=False):
         raise ApiError(400, "that doesn't look like a Mannele export")
     conn = db()
     id_map = {}
+    new_files, old_files = [], []
     try:
         conn.execute("BEGIN")
         if replace:
+            old_files = [r["file"] for r in rows("SELECT file FROM photos")]
+            conn.execute("DELETE FROM photos")
             for t in reversed(EXPORT_TABLES):
                 conn.execute(f"DELETE FROM {t}")
         for p in data.get("people", []):
@@ -638,10 +760,28 @@ def import_all(data, replace=False):
                 (a, b, clean_enum(r.get("kind"), "kind", REL_KINDS, "friend"),
                  clean_str(r.get("notes"), "notes", 2000), now_iso(), now_iso()),
             )
+        per_person = {}
+        for r in data.get("photos", []):
+            pid = id_map.get(r.get("person_id"))
+            if not pid or per_person.get(pid, 0) >= MAX_PHOTOS_PER_PERSON:
+                continue
+            try:
+                raw, mime = decode_image(r.get("data"))
+            except ApiError:
+                continue
+            name = write_photo_file(raw, mime)
+            new_files.append(name)
+            conn.execute(
+                "INSERT INTO photos (person_id, file, mime, caption, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (pid, name, mime, clean_str(r.get("caption"), "caption", 200), r.get("created_at") or now_iso(), now_iso()),
+            )
+            per_person[pid] = per_person.get(pid, 0) + 1
         conn.commit()
     except Exception:
         conn.rollback()
+        remove_photo_files(new_files)
         raise
+    remove_photo_files(old_files)
     return {"ok": True, "people_imported": len(id_map)}
 
 
@@ -741,7 +881,40 @@ def r_person_update(h, body, q, id):
 
 @route("DELETE", "/api/people/:id")
 def r_person_delete(h, body, q, id):
-    return delete("people", int(id))
+    files = [r["file"] for r in rows("SELECT file FROM photos WHERE person_id = ?", (int(id),))]
+    result = delete("people", int(id))
+    remove_photo_files(files)
+    return result
+
+
+@route("POST", "/api/people/:id/photos")
+def r_photo_create(h, body, q, id):
+    return photo_public(add_photo(int(id), body.get("data"), body.get("caption", "")))
+
+
+@route("GET", "/api/photos/:id")
+def r_photo_get(h, body, q, id):
+    p = one("SELECT * FROM photos WHERE id = ?", (int(id),))
+    if not p:
+        raise ApiError(404, "photo not found")
+    try:
+        return RawResponse((PHOTO_DIR / p["file"]).read_bytes(), p["mime"])
+    except FileNotFoundError:
+        raise ApiError(404, "photo file is missing")
+
+
+@route("PUT", "/api/photos/:id")
+def r_photo_update(h, body, q, id):
+    return photo_public(update("photos", int(id), {"caption": clean_str(body.get("caption"), "caption", 200)}))
+
+
+@route("DELETE", "/api/photos/:id")
+def r_photo_delete(h, body, q, id):
+    p = one("SELECT file FROM photos WHERE id = ?", (int(id),))
+    result = delete("photos", int(id))
+    if p:
+        remove_photo_files([p["file"]])
+    return result
 
 
 def make_child_routes(table):
@@ -845,9 +1018,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_raw(self, r):
+        self.send_response(200)
+        self.send_header("Content-Type", r.mime)
+        self.send_header("Content-Length", str(len(r.data)))
+        self.send_header("Cache-Control", r.cache)
+        self.end_headers()
+        self.wfile.write(r.data)
+
     def read_body(self):
         length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY:
+        limit = MAX_IMPORT_BODY if urlparse(self.path).path == "/api/import" else MAX_BODY
+        if length > limit:
             raise ApiError(413, "request too large")
         if not length:
             return {}
@@ -929,7 +1111,10 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 match = regex.match(url.path)
                 if match:
-                    return self.send_json(200, fn(self, body, q, **match.groupdict()))
+                    result = fn(self, body, q, **match.groupdict())
+                    if isinstance(result, RawResponse):
+                        return self.send_raw(result)
+                    return self.send_json(200, result)
             raise ApiError(404, "no such endpoint")
         except ApiError as e:
             self.send_json(e.status, {"error": e.message})
