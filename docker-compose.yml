@@ -15,6 +15,8 @@ services:
       # Set to 1 if you serve Mannele over HTTPS (reverse proxy).
       COOKIE_SECURE: ${COOKIE_SECURE:-0}
       TZ: ${TZ:-UTC}
+      # Daily automatic backups kept in /data/backups (0 turns them off).
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
     volumes:
       - mannele-data:/data
 

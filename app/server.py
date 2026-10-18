@@ -6,6 +6,7 @@ inside the SQLite file in DATA_DIR.
 """
 
 import base64
+import gzip
 import hashlib
 import hmac
 import json
@@ -14,9 +15,10 @@ import os
 import re
 import secrets
 import sqlite3
+import quopri
 import threading
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -35,6 +37,9 @@ MAX_IMPORT_BODY = 512 * 1024 * 1024  # backups include photos
 PHOTO_DIR = DATA_DIR / "photos"
 MAX_PHOTOS_PER_PERSON = 3
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
+BACKUP_DIR = DATA_DIR / "backups"
+BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "14"))  # daily automatic backups to keep; 0 disables
+BACKUP_NAME_RE = re.compile(r"^mannele-\d{4}-\d{2}-\d{2}(-\d{6})?\.json\.gz$")
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -162,12 +167,28 @@ def db():
     return conn
 
 
+# Columns added after the first release. Existing databases get them via ALTER TABLE.
+MIGRATIONS = [
+    ("people", "archived", "INTEGER NOT NULL DEFAULT 0"),
+    ("memories", "done_on", "TEXT NOT NULL DEFAULT ''"),
+]
+
+
+def migrate(conn):
+    for table, column, decl in MIGRATIONS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    conn.commit()
+
+
 def init_db():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     conn = db()
     conn.executescript(SCHEMA)
-    conn.commit()
+    migrate(conn)
     cleanup_photo_files()
 
 
@@ -285,6 +306,7 @@ def v_person(p, partial=False):
         "avatar": clean_avatar,
         "checkin_days": lambda v: clean_int(v, "checkin_days", 0, 3650, 30),
         "favorite": clean_bool,
+        "archived": clean_bool,
     }
     for k, fn in fields.items():
         if not partial or k in p:
@@ -301,11 +323,24 @@ def v_memory(p, partial=False):
         "detail": lambda v: clean_str(v, "detail", 5000),
         "status": lambda v: clean_enum(v, "status", MEMORY_STATUSES, "open"),
         "pinned": clean_bool,
+        "done_on": lambda v: clean_date(v, "done_on"),
     }
     for k, fn in fields.items():
         if not partial or k in p:
             out[k] = fn(p.get(k))
     return out
+
+
+def stamp_done_on(vals, previous_status=None):
+    """Remember when a worry was resolved or a gift given (unless a date was supplied)."""
+    if "status" not in vals or vals["status"] == previous_status:
+        return vals
+    if vals["status"] in ("resolved", "given"):
+        if not vals.get("done_on"):
+            vals["done_on"] = date.today().isoformat()
+    elif vals["status"] == "open":
+        vals["done_on"] = ""
+    return vals
 
 
 def v_date(p, partial=False):
@@ -427,7 +462,7 @@ def next_occurrence(date_str, today=None):
 def upcoming_dates(days=60, person_id=None, today=None):
     today = today or date.today()
     out = []
-    where = "WHERE id = ?" if person_id else ""
+    where = "WHERE id = ?" if person_id else "WHERE archived = 0"
     params = (person_id,) if person_id else ()
     for p in rows(f"SELECT id, name, nickname, avatar, birthday FROM people {where}", params):
         if p["birthday"]:
@@ -439,7 +474,7 @@ def upcoming_dates(days=60, person_id=None, today=None):
                     "label": "Birthday", "date": nxt.isoformat(),
                     "days": (nxt - today).days, "years": years,
                 })
-    where = "WHERE d.person_id = ?" if person_id else ""
+    where = "WHERE d.person_id = ?" if person_id else "WHERE p.archived = 0"
     for d in rows(
         "SELECT d.*, p.name, p.nickname, p.avatar FROM dates d "
         f"JOIN people p ON p.id = d.person_id {where}", params,
@@ -484,7 +519,8 @@ def with_contact_info(p, today=None):
         days_since = (today - date.fromisoformat(p["last_contact"])).days
     p["days_since_contact"] = days_since
     p["overdue"] = bool(
-        p["checkin_days"]
+        not p.get("archived")
+        and p["checkin_days"]
         and (days_since is None or days_since > p["checkin_days"])
     )
     if p.get("birthday"):
@@ -530,28 +566,28 @@ def get_person(pid):
 
 
 def dashboard():
-    people = list_people()
+    people = [p for p in list_people() if not p["archived"]]
     open_problems = rows(
         "SELECT m.*, p.name, p.nickname, p.avatar FROM memories m "
         "JOIN people p ON p.id = m.person_id "
-        "WHERE m.kind = 'problem' AND m.status = 'open' "
+        "WHERE m.kind = 'problem' AND m.status = 'open' AND p.archived = 0 "
         "ORDER BY m.pinned DESC, m.updated_at DESC LIMIT 12"
     )
     follow_ups = rows(
         "SELECT i.*, p.name, p.nickname, p.avatar FROM interactions i "
         "JOIN people p ON p.id = i.person_id "
-        "WHERE i.follow_up <> '' AND i.id IN ("
+        "WHERE i.follow_up <> '' AND p.archived = 0 AND i.id IN ("
         "  SELECT MAX(id) FROM interactions GROUP BY person_id) "
         "ORDER BY i.date DESC LIMIT 12"
     )
     gifts = rows(
         "SELECT m.*, p.name, p.nickname, p.avatar FROM memories m "
         "JOIN people p ON p.id = m.person_id "
-        "WHERE m.kind = 'gift' AND m.status = 'open' ORDER BY RANDOM() LIMIT 6"
+        "WHERE m.kind = 'gift' AND m.status = 'open' AND p.archived = 0 ORDER BY RANDOM() LIMIT 6"
     )
     recent = rows(
         "SELECT i.*, p.name, p.nickname, p.avatar FROM interactions i "
-        "JOIN people p ON p.id = i.person_id ORDER BY i.date DESC, i.id DESC LIMIT 6"
+        "JOIN people p ON p.id = i.person_id WHERE p.archived = 0 ORDER BY i.date DESC, i.id DESC LIMIT 6"
     )
     overdue = [p for p in people if p["overdue"]]
     overdue.sort(key=lambda p: -(p["days_since_contact"] if p["days_since_contact"] is not None else 10**6))
@@ -599,8 +635,11 @@ def search(q):
 
 def graph():
     return {
-        "people": rows("SELECT id, name, nickname, avatar, circle, favorite FROM people"),
-        "relationships": rows("SELECT * FROM relationships"),
+        "people": rows("SELECT id, name, nickname, avatar, circle, favorite FROM people WHERE archived = 0"),
+        "relationships": rows(
+            "SELECT r.* FROM relationships r JOIN people a ON a.id = r.a_id JOIN people b ON b.id = r.b_id "
+            "WHERE a.archived = 0 AND b.archived = 0"
+        ),
     }
 
 
@@ -614,8 +653,8 @@ PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "
 class RawResponse:
     """Returned by a route that answers with bytes instead of JSON."""
 
-    def __init__(self, data, mime, cache="private, max-age=86400"):
-        self.data, self.mime, self.cache = data, mime, cache
+    def __init__(self, data, mime, cache="private, max-age=86400", filename=None):
+        self.data, self.mime, self.cache, self.filename = data, mime, cache, filename
 
 
 def sniff_image(data):
@@ -786,6 +825,251 @@ def import_all(data, replace=False):
 
 
 # --------------------------------------------------------------------------
+# Calendar feed (iCalendar / .ics)
+# --------------------------------------------------------------------------
+
+
+def ics_escape(text):
+    return (str(text).replace("\\", "\\\\").replace(";", "\;").replace(",", "\\,")
+            .replace("\r\n", "\\n").replace("\n", "\\n"))
+
+
+def ics_fold(line):
+    """Fold lines longer than 75 octets (RFC 5545 §3.1)."""
+    raw = line.encode()
+    if len(raw) <= 75:
+        return line
+    parts, cur = [], b""
+    for ch in line:
+        b = ch.encode()
+        if len(cur) + len(b) > (75 if not parts else 74):
+            parts.append(cur.decode())
+            cur = b""
+        cur += b
+    parts.append(cur.decode())
+    return "\r\n ".join(parts)
+
+
+def ics_token():
+    tok = meta_get("ics_token")
+    if not tok:
+        tok = secrets.token_urlsafe(24)
+        meta_set("ics_token", tok)
+    return tok
+
+
+def build_ics():
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    lines = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Mannele//relationship notebook//EN",
+        "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "X-WR-CALNAME:Mannele",
+    ]
+
+    def event(uid, start, summary, description="", yearly=True):
+        nxt = start + timedelta(days=1)
+        lines.extend([
+            "BEGIN:VEVENT", f"UID:{uid}@mannele", f"DTSTAMP:{stamp}",
+            f"DTSTART;VALUE=DATE:{start.strftime('%Y%m%d')}",
+            f"DTEND;VALUE=DATE:{nxt.strftime('%Y%m%d')}",
+            f"SUMMARY:{ics_escape(summary)}", "TRANSP:TRANSPARENT",
+        ])
+        if yearly:
+            lines.append("RRULE:FREQ=YEARLY")
+        if description:
+            lines.append(f"DESCRIPTION:{ics_escape(description)}")
+        lines.append("END:VEVENT")
+
+    def parse(d):
+        m = DATE_RE.match(d or "")
+        if not m:
+            return None
+        year = 2000 if m.group(1) == "--" else int(m.group(1)[:4])
+        try:
+            return date(year, int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+
+    for p in rows("SELECT id, name, nickname, birthday FROM people WHERE archived = 0 AND birthday <> ''"):
+        start = parse(p["birthday"])
+        if start:
+            name = p["nickname"] or p["name"]
+            desc = "" if p["birthday"].startswith("--") else f"Born {start.year}"
+            event(f"birthday-{p['id']}", start, f"{name}'s birthday", desc)
+    for d in rows("SELECT d.*, p.name, p.nickname FROM dates d JOIN people p ON p.id = d.person_id WHERE p.archived = 0"):
+        start = parse(d["date"])
+        if start:
+            event(f"date-{d['id']}", start, f"{d['label']} ({d['nickname'] or d['name']})", d["notes"], bool(d["yearly"]))
+    lines.append("END:VCALENDAR")
+    return ("\r\n".join(ics_fold(line) for line in lines) + "\r\n").encode()
+
+
+# --------------------------------------------------------------------------
+# Contacts import (vCard 2.1 / 3.0 / 4.0)
+# --------------------------------------------------------------------------
+
+
+def _vcard_unescape(v):
+    return re.sub(r"\\([\\,;nN])", lambda m: "\n" if m.group(1) in "nN" else m.group(1), v)
+
+
+def _vcard_bday(v):
+    v = v.strip().split("T")[0]
+    for pattern, fmt in (
+        (r"^(\d{4})-?(\d{2})-?(\d{2})$", "{0}-{1}-{2}"),
+        (r"^--(\d{2})-?(\d{2})$", "--{0}-{1}"),
+    ):
+        m = re.match(pattern, v)
+        if m:
+            out = fmt.format(*m.groups())
+            try:
+                return clean_date(out, "birthday", allow_no_year=True)
+            except ApiError:
+                return ""
+    return ""
+
+
+def parse_vcards(text):
+    """Return a list of dicts: name, nickname, birthday, notes, photo (base64 or None)."""
+    # unfold: a line starting with space/tab continues the previous one (QP soft breaks end with "=")
+    lines = []
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if raw[:1] in (" ", "\t") and lines:
+            lines[-1] += raw[1:]
+        elif lines and lines[-1].endswith("=") and "QUOTED-PRINTABLE" in lines[-1].upper().split(":", 1)[0]:
+            lines[-1] = lines[-1][:-1] + raw
+        else:
+            lines.append(raw)
+    cards, cur = [], None
+    for line in lines:
+        if ":" not in line:
+            continue
+        head, value = line.split(":", 1)
+        parts = head.split(";")
+        prop = parts[0].split(".")[-1].upper()  # strip "item1." groups
+        params = [x.upper() for x in parts[1:]]
+        if prop == "BEGIN" and value.strip().upper() == "VCARD":
+            cur = {"fn": "", "n": "", "nickname": "", "bday": "", "notes": [], "photo": None}
+            continue
+        if cur is None:
+            continue
+        if prop == "END":
+            cards.append(cur)
+            cur = None
+            continue
+        if any("QUOTED-PRINTABLE" in x for x in params):
+            charset = next((x.split("=", 1)[1] for x in params if x.startswith("CHARSET=")), "UTF-8")
+            try:
+                value = quopri.decodestring(value.encode()).decode(charset.lower(), "replace")
+            except LookupError:
+                value = quopri.decodestring(value.encode()).decode("utf-8", "replace")
+        if prop == "FN":
+            cur["fn"] = _vcard_unescape(value).strip()
+        elif prop == "N":
+            bits = [_vcard_unescape(x).strip() for x in value.split(";")]
+            bits += [""] * (5 - len(bits))
+            cur["n"] = " ".join(x for x in (bits[3], bits[1], bits[2], bits[0], bits[4]) if x)
+        elif prop == "NICKNAME":
+            cur["nickname"] = _vcard_unescape(value.split(",")[0]).strip()
+        elif prop == "BDAY":
+            cur["bday"] = _vcard_bday(value)
+        elif prop == "NOTE":
+            cur["notes"].append(_vcard_unescape(value).strip())
+        elif prop in ("ORG", "TITLE"):
+            v = _vcard_unescape(value.replace(";", " ")).strip()
+            if v:
+                cur["notes"].append(("Works at " if prop == "ORG" else "") + v)
+        elif prop == "PHOTO":
+            v = value.strip()
+            if v.startswith("data:") or any(x in ("ENCODING=B", "ENCODING=BASE64", "BASE64") for x in params):
+                cur["photo"] = v.split(",", 1)[-1] if v.startswith("data:") else v
+    out = []
+    for c in cards:
+        name = c["fn"] or c["n"]
+        if not name:
+            continue
+        out.append({
+            "name": name[:120], "nickname": c["nickname"][:120], "birthday": c["bday"],
+            "notes": "\n".join(x for x in c["notes"] if x)[:10000], "photo": c["photo"],
+        })
+    return out
+
+
+def import_vcards(text, circle="friends"):
+    if not isinstance(text, str) or "BEGIN:VCARD" not in text.upper():
+        raise ApiError(400, "that doesn't look like a contacts (.vcf) file")
+    circle = clean_enum(circle, "circle", CIRCLES, "friends")
+    existing = {r["name"].strip().lower() for r in rows("SELECT name FROM people")}
+    imported, skipped = [], []
+    for c in parse_vcards(text):
+        if c["name"].strip().lower() in existing:
+            skipped.append(c["name"])
+            continue
+        person = insert("people", v_person({
+            "name": c["name"], "nickname": c["nickname"], "birthday": c["birthday"],
+            "notes": c["notes"], "circle": circle,
+        }))
+        existing.add(c["name"].strip().lower())
+        if c["photo"]:
+            try:
+                add_photo(person["id"], c["photo"], "From contacts")
+            except ApiError:
+                pass
+        imported.append(c["name"])
+    return {"ok": True, "imported": len(imported), "skipped": skipped, "names": imported}
+
+
+# --------------------------------------------------------------------------
+# Automatic backups (gzip-compressed JSON exports in DATA_DIR/backups)
+# --------------------------------------------------------------------------
+
+_backup_lock = threading.Lock()
+
+
+def make_backup(manual=False):
+    with _backup_lock:
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        today = date.today().isoformat()
+        name = f"mannele-{today}-{datetime.now().strftime('%H%M%S')}.json.gz" if manual else f"mannele-{today}.json.gz"
+        tmp = BACKUP_DIR / (name + ".tmp")
+        with gzip.open(tmp, "wt", encoding="utf-8") as f:
+            json.dump(export_all(), f)
+        tmp.replace(BACKUP_DIR / name)
+        prune_backups()
+        return name
+
+
+def list_backups():
+    if not BACKUP_DIR.exists():
+        return []
+    out = []
+    for f in sorted(BACKUP_DIR.iterdir(), reverse=True):
+        if f.is_file() and BACKUP_NAME_RE.match(f.name):
+            st = f.stat()
+            out.append({"name": f.name, "size": st.st_size,
+                        "created": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")})
+    return out
+
+
+def prune_backups():
+    """Keep only the newest BACKUP_KEEP backups (daily and manual together)."""
+    if BACKUP_KEEP <= 0:
+        return
+    for b in list_backups()[BACKUP_KEEP:]:
+        (BACKUP_DIR / b["name"]).unlink(missing_ok=True)
+
+
+def backup_loop():
+    while True:
+        try:
+            if BACKUP_KEEP > 0 and one("SELECT id FROM people LIMIT 1"):
+                if not (BACKUP_DIR / f"mannele-{date.today().isoformat()}.json.gz").exists():
+                    make_backup()
+        except Exception as e:  # pragma: no cover - keep the thread alive
+            print(f"automatic backup failed: {e!r}")
+        time.sleep(3600)
+
+
+# --------------------------------------------------------------------------
 # Auth (optional — enabled when APP_PASSWORD is set)
 # --------------------------------------------------------------------------
 
@@ -843,7 +1127,10 @@ ROUTES = []
 
 
 def route(method, pattern):
-    regex = re.compile("^" + re.sub(r":(\w+)", r"(?P<\1>\\d+)", pattern) + "$")
+    # ":name" matches a file name, any other ":param" a numeric id
+    regex = re.compile("^" + re.sub(
+        r":(\w+)", lambda m: f"(?P<{m.group(1)}>[A-Za-z0-9._-]+)" if m.group(1) == "name" else f"(?P<{m.group(1)}>\\d+)",
+        pattern) + "$")
 
     def deco(fn):
         ROUTES.append((method, regex, fn))
@@ -920,14 +1207,21 @@ def r_photo_delete(h, body, q, id):
 def make_child_routes(table):
     @route("POST", f"/api/people/:id/{table}")
     def create(h, body, q, id):
-        get_person(int(id))  # 404 if missing
+        if not one("SELECT id FROM people WHERE id = ?", (int(id),)):
+            raise ApiError(404, "person not found")
         vals = TABLES[table](body)
+        if table == "memories":
+            stamp_done_on(vals)
         vals["person_id"] = int(id)
         return insert(table, vals)
 
     @route("PUT", f"/api/{table}/:id")
     def upd(h, body, q, id):
-        return update(table, int(id), TABLES[table](body, partial=True))
+        vals = TABLES[table](body, partial=True)
+        if table == "memories":
+            old = one("SELECT status FROM memories WHERE id = ?", (int(id),))
+            stamp_done_on(vals, old["status"] if old else None)
+        return update(table, int(id), vals)
 
     @route("DELETE", f"/api/{table}/:id")
     def dele(h, body, q, id):
@@ -979,6 +1273,44 @@ def r_import(h, body, q):
     return import_all(body.get("data"), replace=bool(body.get("replace")))
 
 
+@route("GET", "/api/calendar.ics")
+def r_calendar(h, body, q):
+    return RawResponse(build_ics(), "text/calendar; charset=utf-8", "no-store", "mannele.ics")
+
+
+@route("GET", "/api/ics")
+def r_ics_info(h, body, q):
+    return {"path": f"/ics/{ics_token()}.ics"}
+
+
+@route("POST", "/api/ics")
+def r_ics_reset(h, body, q):
+    meta_set("ics_token", secrets.token_urlsafe(24))
+    return {"path": f"/ics/{ics_token()}.ics"}
+
+
+@route("POST", "/api/import-vcard")
+def r_import_vcard(h, body, q):
+    return import_vcards(body.get("text"), body.get("circle") or "friends")
+
+
+@route("GET", "/api/backups")
+def r_backups(h, body, q):
+    return {"backups": list_backups(), "keep": BACKUP_KEEP}
+
+
+@route("POST", "/api/backups")
+def r_backup_now(h, body, q):
+    return {"name": make_backup(manual=True), "backups": list_backups()}
+
+
+@route("GET", "/api/backups/:name")
+def r_backup_get(h, body, q, name):
+    if not BACKUP_NAME_RE.match(name) or not (BACKUP_DIR / name).is_file():
+        raise ApiError(404, "backup not found")
+    return RawResponse((BACKUP_DIR / name).read_bytes(), "application/gzip", "no-store", name)
+
+
 @route("POST", "/api/demo")
 def r_demo(h, body, q):
     from seed import seed_demo
@@ -1023,12 +1355,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", r.mime)
         self.send_header("Content-Length", str(len(r.data)))
         self.send_header("Cache-Control", r.cache)
+        if r.filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{r.filename}"')
         self.end_headers()
-        self.wfile.write(r.data)
+        if self.command != "HEAD":
+            self.wfile.write(r.data)
 
     def read_body(self):
         length = int(self.headers.get("Content-Length") or 0)
-        limit = MAX_IMPORT_BODY if urlparse(self.path).path == "/api/import" else MAX_BODY
+        limit = MAX_IMPORT_BODY if urlparse(self.path).path in ("/api/import", "/api/import-vcard") else MAX_BODY
         if length > limit:
             raise ApiError(413, "request too large")
         if not length:
@@ -1143,9 +1478,18 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(data)
 
+    def serve_ics_feed(self):
+        """Public calendar feed: calendar apps can't log in, so the unguessable token is the key."""
+        m = re.match(r"^/ics/([A-Za-z0-9_-]+)\.ics$", urlparse(self.path).path)
+        if not m or not hmac.compare_digest(m.group(1), ics_token()):
+            return self.send_json(404, {"error": "unknown calendar link"})
+        self.send_raw(RawResponse(build_ics(), "text/calendar; charset=utf-8", "no-store"))
+
     def do_GET(self):
         if self.path.startswith("/api/"):
             return self.handle_api("GET")
+        if self.path.startswith("/ics/"):
+            return self.serve_ics_feed()
         if self.path == "/healthz":
             return self.send_json(200, {"ok": True})
         self.serve_static()
@@ -1174,6 +1518,7 @@ def main():
         from seed import seed_demo
         seed_demo()
         print("Seeded demo people")
+    threading.Thread(target=backup_loop, daemon=True, name="backups").start()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Mannele is listening on http://{HOST}:{PORT}  (auth: {'on' if APP_PASSWORD else 'off'})")
     try:

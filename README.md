@@ -28,6 +28,13 @@ Each person gets a small anime-style portrait you design yourself.
 - **Dates**: birthdays, anniversaries and one-off events, with "turning 30" / "5th" countdowns.
 - **Connections (相関図)**: link people (siblings, partners, roommates, coworkers, pets…) and explore them in a draggable chart with you in the centre.
 - **Home**: upcoming dates, who to check in on, follow-ups, people you haven't talked to in a while (per-person reminder interval), gift ideas and recent conversations.
+- **Before you meet**: a summary card at the top of each person's page (what to ask about, open worries, last conversation, the next date, likes and dislikes) that prints as a one-page cheat sheet.
+- **Gift and worry history**: the date a gift was given or a worry resolved is recorded; a "Gifts given" list and a warning when you note a gift similar to one you already gave.
+- **Archive** people you've drifted from or who moved away: they keep all their notes but leave reminders, the calendar and the chart.
+- **Calendar subscription**: a private `.ics` link (or a one-off download) puts birthdays and dates into your phone or computer calendar.
+- **Contacts import**: add people from a `.vcf` export (phone, Google, iCloud, Outlook) including birthdays, notes and photos.
+- **Automatic daily backups** on the server (compressed, newest 14 kept) that you can download and restore from Settings.
+- One-click "talked today" for when you just want to reset the check-in reminder.
 - Search across everything, quick "Jot down" button (`n` shortcut, `/` to search).
 - Light and dark themes, works on phones.
 - JSON backup/restore. Optional password.
@@ -66,8 +73,11 @@ docker run -d -p 127.0.0.1:8080:8080 -v mannele-data:/data --name mannele mannel
 | `TZ`            | `UTC`   | Your timezone, so "today" and countdowns are right   |
 | `PORT`          | `8080`  | Port inside the container                            |
 | `DATA_DIR`      | `/data` | Where the SQLite database lives                      |
+| `BACKUP_KEEP`   | `14`    | Daily automatic backups to keep (`0` turns them off) |
 
-**Backups:** Settings → *Download backup* gives a JSON file you can restore (merge or replace) later. You can also just copy `mannele.db` out of the volume.
+**Backups:** a compressed backup is written to `/data/backups/` every day (newest 14 kept). Settings → *Download backup* gives a JSON file on demand, and *Restore from file* accepts both kinds (merge or replace).
+
+**Calendar subscription:** Settings → *Calendar* shows a private link like `http://your-server:8080/ics/<token>.ics`. The link works without a login so calendar apps can fetch it, so keep it private and use *Make a new link* if it leaks. Your calendar app has to be able to reach the server; with the default `127.0.0.1` port binding that's only this computer, so use the *Download .ics file* button otherwise.
 
 ## Development
 

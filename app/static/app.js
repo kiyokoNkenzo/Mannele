@@ -256,7 +256,8 @@
 
   // ---------- Home ----------
   async function viewHome() {
-    const [d, people] = await Promise.all([api("GET", "/api/dashboard"), getPeople(true)]);
+    const [d, everyone] = await Promise.all([api("GET", "/api/dashboard"), getPeople(true)]);
+    const people = everyone.filter((p) => !p.archived);
 
     if (!d.counts.people) {
       app().innerHTML = `
@@ -295,7 +296,7 @@
     const overdue = d.overdue.map((p) => `<li style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px dotted var(--dotted)">
         <a href="#/person/${p.id}">${photo(p, 34)}</a>
         <span style="flex:1;min-width:0"><a href="#/person/${p.id}">${esc(dname(p))}</a><br><span class="st">last: ${p.days_since_contact == null ? "never" : ago(p.days_since_contact)}</span></span>
-        <a href="#" data-action="log-chat" data-person="${p.id}" style="font-size:11px">Log</a></li>`).join("");
+        <span style="font-size:11px;text-align:right;line-height:1.5"><a href="#" data-action="talked-today" data-person="${p.id}" title="Record a conversation today without details">talked today</a><br><a href="#" data-action="log-chat" data-person="${p.id}">log…</a></span></li>`).join("");
     const gifts = d.gift_ideas.map((m) => `<li><a href="#/person/${m.person_id}">${esc(m.text)}</a> <span class="who">(for ${esc(m.nickname || m.name)})</span></li>`).join("");
 
     app().innerHTML = `
@@ -323,10 +324,13 @@
   // ---------- People ----------
   async function viewPeople(circle) {
     if (circle) state.peopleFilter = CIRCLES[circle] ? circle : "all";
-    const people = await getPeople(true);
+    const everyone = await getPeople(true);
+    const archived = everyone.filter((p) => p.archived);
+    const people = everyone.filter((p) => !p.archived);
     const counts = {};
     people.forEach((p) => { counts[p.circle] = (counts[p.circle] || 0) + 1; });
-    let list = people.filter((p) => state.peopleFilter === "all" || p.circle === state.peopleFilter);
+    if (state.peopleFilter === "archived" && !archived.length) state.peopleFilter = "all";
+    let list = state.peopleFilter === "archived" ? archived : people.filter((p) => state.peopleFilter === "all" || p.circle === state.peopleFilter);
     const sorters = {
       name: (a, b) => b.favorite - a.favorite || a.name.localeCompare(b.name),
       contact: (a, b) => (b.days_since_contact ?? 1e9) - (a.days_since_contact ?? 1e9),
@@ -337,7 +341,8 @@
 
     const tabs = [`<button class="${state.peopleFilter === "all" ? "on" : ""}" data-action="filter-circle" data-v="all">All (${people.length})</button>`]
       .concat(Object.entries(CIRCLES).filter(([k]) => counts[k]).map(([k, c]) =>
-        `<button class="${state.peopleFilter === k ? "on" : ""}" data-action="filter-circle" data-v="${k}">${c.label} (${counts[k]})</button>`)).join("");
+        `<button class="${state.peopleFilter === k ? "on" : ""}" data-action="filter-circle" data-v="${k}">${c.label} (${counts[k]})</button>`))
+      .concat(archived.length ? [`<button class="${state.peopleFilter === "archived" ? "on" : ""}" data-action="filter-circle" data-v="archived">Archived (${archived.length})</button>`] : []).join("");
 
     const cells = list.map((p) => {
       let flag = "";
@@ -359,7 +364,8 @@
           <option value="birthday">Next birthday</option>
           <option value="recent">Recently added</option>
         </select></p>
-      ${box(state.peopleFilter === "all" ? "Everyone" : CIRCLES[state.peopleFilter].label, cells ? `<div class="pgrid wide">${cells}</div>` : empty("Nobody in this group yet."), { n: list.length })}`;
+      ${state.peopleFilter === "archived" ? `<p class="st">Archived people are kept with all their notes but leave reminders, the calendar and the relationship chart.</p>` : ""}
+      ${box(state.peopleFilter === "all" ? "Everyone" : state.peopleFilter === "archived" ? "Archived" : CIRCLES[state.peopleFilter].label, cells ? `<div class="pgrid wide">${cells}</div>` : empty("Nobody in this group yet."), { n: list.length })}`;
     const sortSel = $("#people-sort");
     sortSel.value = state.peopleSort;
     sortSel.addEventListener("change", () => { state.peopleSort = sortSel.value; viewPeople(); });
@@ -397,7 +403,11 @@
       let toggle = "";
       if (m.kind === "problem") toggle = `<a href="#" data-action="mem-status" data-id="${m.id}" data-v="${done ? "open" : "resolved"}">${done ? "reopen" : "resolved"}</a>`;
       else if (m.kind === "gift") toggle = `<a href="#" data-action="mem-status" data-id="${m.id}" data-v="${done ? "open" : "given"}">${done ? "not given" : "given"}</a>`;
-      const status = m.status === "resolved" ? " [resolved]" : m.status === "given" ? " [given]" : m.status === "archived" ? " [archived]" : "";
+      let status = m.status === "archived" ? " [archived]" : "";
+      if (m.status === "resolved") {
+        const took = m.done_on ? Math.round((toDate(m.done_on) - toDate(m.created_at)) / 86400000) : null;
+        status = ` [resolved${m.done_on ? ` ${ymd(m.done_on)}` : ""}${took > 0 ? `, after ${took} day${took === 1 ? "" : "s"}` : ""}]`;
+      } else if (m.status === "given") status = ` [given${m.done_on ? ` ${ymd(m.done_on)}` : ""}]`;
       return `<li class="${done ? "done" : ""} ${m.pinned ? "pinned" : ""}">
           ${cat(m.kind)}
           <span class="t"><span class="txt">${m.pinned ? "【PIN】" : ""}${esc(m.text)}</span>${newMark(m.created_at)} <span class="st">${md(m.created_at)}${status}</span>
@@ -447,9 +457,30 @@
     const thumbs = photos.map((ph, i) => `<a href="#" class="thumb" data-action="view-photo" data-i="${i}" title="${esc(ph.caption || "Photo")}"><img src="/api/photos/${ph.id}" alt="${esc(ph.caption || `Photo of ${p.name}`)}" loading="lazy"></a>`).join("")
       + (photos.length < MAX_PHOTOS ? `<a href="#" class="thumb add" data-action="add-photo" data-person="${p.id}" title="Add a photo">＋<span>photo</span></a>` : "");
 
+    // "Before you meet" — everything worth remembering on one card (printable)
+    const last = p.interactions[0];
+    const openWorries = p.memories.filter((m) => m.kind === "problem" && m.status === "open");
+    const pick = (kind) => p.memories.filter((m) => m.kind === kind && m.status === "open").slice(0, 4).map((m) => esc(m.text));
+    const nextDate = p.upcoming.find((e) => e.days <= 60);
+    const briefRows = [
+      last && last.follow_up && ["Ask about", `<b>${esc(last.follow_up)}</b>`],
+      openWorries.length && ["Check in on", openWorries.map((m) => esc(m.text)).join("<br>")],
+      last && ["Last time", `${ymd(last.date)} <span class="st">(${ago(daysSince(last.date))})</span> — ${last.topics ? esc(last.topics) : esc(MODES[last.mode] || "chat")}`],
+      nextDate && ["Coming up", `${eventText(nextDate, false)} on ${md(nextDate.date)} <span class="st">(${until(nextDate.days)})</span>`],
+      pick("interest").length && ["Into lately", pick("interest").join(" ・ ")],
+      pick("like").length && ["Likes", pick("like").join(" ・ ")],
+      pick("dislike").length && ["Avoid", pick("dislike").join(" ・ ")],
+      pick("goal").length && ["Working towards", pick("goal").join(" ・ ")],
+    ].filter(Boolean).map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+
+    const given = p.memories.filter((m) => m.kind === "gift" && m.status === "given")
+      .sort((a, b) => String(b.done_on).localeCompare(String(a.done_on)))
+      .map((m) => `<li><span class="d">${m.done_on ? ymd(m.done_on) : "date unknown"}</span><span class="t">${esc(m.text)}</span></li>`).join("");
+
     const notices = [];
+    if (p.archived) notices.push(`<li>${esc(p.name)} is archived — hidden from reminders, the calendar and the chart. <a href="#" data-action="archive-person" data-v="0">Restore</a></li>`);
     if (p.next_birthday_days != null && p.next_birthday_days <= 14) notices.push(`<li>${esc(dname(p))}'s birthday is ${p.next_birthday_days === 0 ? "today!" : `on ${md(p.next_birthday)} (${until(p.next_birthday_days)})`}</li>`);
-    if (p.overdue) notices.push(`<li>It's been a while — ${p.last_contact ? `last conversation ${ago(p.days_since_contact)}` : "no conversations logged yet"}.</li>`);
+    if (p.overdue && !p.archived) notices.push(`<li>It's been a while — ${p.last_contact ? `last conversation ${ago(p.days_since_contact)}` : "no conversations logged yet"}.</li>`);
 
     app().innerHTML = `
       ${path(`<a href="#/people">People</a>`, esc(p.name))}
@@ -464,21 +495,26 @@
           <div class="col">
             ${box("Menu", `<ul class="actions">
               <li><a href="#" data-action="log-chat" data-person="${p.id}">Log a conversation</a></li>
+              <li><a href="#" data-action="talked-today" data-person="${p.id}">We talked today (quick)</a></li>
               <li><a href="#" data-action="new-memory" data-person="${p.id}">Add a note</a></li>
               <li><a href="#" data-action="new-date" data-person="${p.id}">Add a date</a></li>
               <li><a href="#" data-action="new-rel" data-person="${p.id}">Add a connection</a></li>
               <li><a href="#" data-action="add-photo" data-person="${p.id}">Add a photo</a></li>
               <li><a href="#" data-action="edit-person" data-id="${p.id}">Edit profile</a></li>
+              <li><a href="#" data-action="print-brief">Print a cheat sheet</a></li>
+              <li><a href="#" data-action="archive-person" data-v="${p.archived ? 0 : 1}">${p.archived ? "Restore from archive" : "Archive this person"}</a></li>
               <li><a href="#" data-action="delete-person" data-id="${p.id}">Delete this person</a></li></ul>`)}
             ${box("Connections", rels ? `<div class="pgrid">${rels}</div>` : empty("None yet."), { n: p.relationships.length, foot: `<a class="more" href="#/web">Relationship chart</a>` })}
           </div>
         </div>
         <div class="col">
           ${notices.length ? `<ul class="notice">${notices.join("")}</ul>` : ""}
-          ${box("Profile", `<table class="ptable">${rows}</table>`, { right: `<a href="#" data-action="edit-person">edit</a>` })}
+          ${briefRows ? box(`Before you meet ${esc(dname(p))}`, `<table class="ptable brief">${briefRows}</table>`, { cls: "brief-box", right: `<a href="#" data-action="print-brief">print</a>` }) : ""}
+          ${box("Profile", `<table class="ptable">${rows}</table>`, { cls: "profile-box", right: `<a href="#" data-action="edit-person">edit</a>` })}
           ${box("Notes", notesBody, { n: p.memories.length })}
           ${box("Conversations", chats ? `<ul class="diary">${chats}</ul>` : empty("No conversations logged yet."), { n: p.interactions.length, right: `<a href="#" data-action="log-chat" data-person="${p.id}">+ log</a>` })}
           ${box("Dates", dates ? `<ul class="dl">${dates}</ul>` : empty("Anniversaries, exams, trips…"), { right: `<a href="#" data-action="new-date" data-person="${p.id}">+ add</a>` })}
+          ${given ? box("Gifts given", `<ul class="dl">${given}</ul><p class="st" style="margin:4px 0 0">So you don't give the same thing twice.</p>`, { n: p.memories.filter((m) => m.kind === "gift" && m.status === "given").length }) : ""}
           ${relList ? box("Connection details", `<ul class="blist">${relList}</ul>`) : ""}
         </div>
       </div>`;
@@ -793,10 +829,24 @@
             <label><input type="radio" name="theme" value="auto"> Follow device</label>
             <label><input type="radio" name="theme" value="light"> Light</label>
             <label><input type="radio" name="theme" value="dark"> Dark</label></span>`)}
-        ${frow("Backup", `<p>All data is kept in one SQLite file on this machine. Download a backup every now and then.</p>
+        ${frow("Backup", `<p>Everything (people, notes and photos) in one JSON file you can keep anywhere and restore later.</p>
             <button class="btn orange" data-action="export">Download backup (JSON)</button>
-            <label class="btn" style="cursor:pointer">Restore from file...<input type="file" id="import-file" accept="application/json,.json" hidden></label>
+            <label class="btn" style="cursor:pointer">Restore from file...<input type="file" id="import-file" accept="application/json,.json,.gz,application/gzip" hidden></label>
             <label class="check" style="display:flex;margin-top:6px"><input type="checkbox" id="import-replace"> Replace all current data when restoring (otherwise merge)</label>`)}
+        ${frow("Automatic backups", `<p>A compressed backup is saved on the server once a day (newest <span id="bk-keep">14</span> kept, in <code>/data/backups</code>). Download one to keep it somewhere else, or restore it with “Restore from file” above.</p>
+            <button class="btn" data-action="backup-now">Back up now</button>
+            <ul class="dl" id="bk-list" style="margin-top:6px"><li class="st">Loading…</li></ul>`)}
+        ${frow("Calendar", `<p>Put birthdays and dates into your phone or computer calendar. Subscribe to this private link (it works without logging in, so treat it like a password):</p>
+            <input type="text" id="ics-url" readonly style="width:100%" aria-label="Calendar subscription link">
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn" data-action="copy-ics">Copy link</button>
+              <a class="btn" href="/api/calendar.ics" download>Download .ics file</a>
+              <button class="btn" data-action="reset-ics">Make a new link</button>
+            </div>
+            <span class="hint">Your calendar app must be able to reach this server. With the default setup it only listens on this computer; downloading the .ics file works everywhere.</span>`)}
+        ${frow("Import contacts", `<p>Add people from a contacts export (.vcf, from your phone, Google Contacts, iCloud or Outlook). Names, nicknames, birthdays, notes, company and photos are imported; people whose name already exists are skipped.</p>
+            Group for new people: <select id="vcf-circle" class="short">${Object.entries(CIRCLES).map(([k, c]) => `<option value="${k}" ${k === "friends" ? "selected" : ""}>${c.label}</option>`).join("")}</select>
+            <label class="btn" style="cursor:pointer">Choose .vcf file…<input type="file" id="vcf-file" accept=".vcf,text/vcard,text/x-vcard" hidden></label>`)}
         ${frow("Example data", `<p>Adds a few example people so you can try things out.</p><button class="btn" data-action="seed-demo">Load example people</button>`)}
         <tr id="session-row" hidden><th>Session</th><td><p>This notebook is password-protected.</p><button class="btn" data-action="logout">Log out</button></td></tr>
       </table>`;
@@ -807,15 +857,46 @@
       applyTheme();
     });
     $("#import-file").addEventListener("change", importFile);
-    const s = await api("GET", "/api/session");
+    $("#vcf-file").addEventListener("change", importVcf);
+    const [s, ics] = await Promise.all([api("GET", "/api/session"), api("GET", "/api/ics"), loadBackups()]);
     $("#session-row").hidden = !s.auth;
+    $("#ics-url").value = location.origin + ics.path;
+    $("#ics-url").addEventListener("focus", (e) => e.target.select());
+  }
+
+  const fmtSize = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  async function loadBackups() {
+    const r = await api("GET", "/api/backups");
+    const el = $("#bk-list");
+    if (!el) return;
+    $("#bk-keep").textContent = r.keep;
+    el.innerHTML = r.backups.length
+      ? r.backups.map((b) => `<li><span class="d">${ymd(b.created)} ${b.created.slice(11, 16)}</span><span class="t"><a href="/api/backups/${encodeURIComponent(b.name)}" download>${esc(b.name)}</a></span><span class="x st">${fmtSize(b.size)}</span></li>`).join("")
+      : `<li class="st">${r.keep > 0 ? "No backups yet — the first one is made within an hour of adding people." : "Automatic backups are turned off (BACKUP_KEEP=0)."}</li>`;
+  }
+
+  async function importVcf(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const r = await api("POST", "/api/import-vcard", { text: await file.text(), circle: $("#vcf-circle").value });
+      toast(`Imported ${r.imported} ${r.imported === 1 ? "person" : "people"}${r.skipped.length ? `, skipped ${r.skipped.length} already in your notebook` : ""}.`);
+    } catch (err) {
+      toast(err.message || "Couldn't read that file", true);
+    } finally {
+      e.target.value = "";
+    }
   }
 
   async function importFile(e) {
     const file = e.target.files[0];
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
+      // daily backups are gzip-compressed JSON
+      const text = /\.gz$/i.test(file.name)
+        ? await new Response(file.stream().pipeThrough(new DecompressionStream("gzip"))).text()
+        : await file.text();
+      const data = JSON.parse(text);
       const replace = $("#import-replace").checked;
       if (replace && !(await confirmBox("Replace all data?", "Every current person, note and conversation will be deleted before the backup is restored.", "Replace"))) return;
       const r = await api("POST", "/api/import", { data, replace });
@@ -912,6 +993,7 @@
           ${frow("Note", `<input type="text" name="text" required maxlength="1000" value="${esc(m.text)}" autofocus>`, true)}
           ${frow("Details", `<textarea name="detail" maxlength="5000">${esc(m.detail)}</textarea>`, false, "Context, sizes, links, who said what.")}
           ${frow("Status", `<span class="radios">${Object.entries(statuses).map(([k, v]) => `<label><input type="radio" name="status" value="${k}" ${m.status === k ? "checked" : ""}> ${v}</label>`).join("")}</span>`)}
+          ${frow("Done on", `<input type="date" name="done_on" value="${esc(m.done_on || "")}">`, false, "When it was resolved or given. Filled in automatically when you change the status.")}
           ${frow("Pin", `<label class="check"><input type="checkbox" name="pinned" ${m.pinned ? "checked" : ""}> Keep at the top</label>`)}
         </table>
         ${submitRow()}
@@ -1058,6 +1140,13 @@
       </form>`, { wide: true });
   }
 
+  /** A gift already given to the current person that looks like `text` (shared word of 4+ letters). */
+  function similarGift(text) {
+    const words = (s) => new Set(String(s).toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || []);
+    const mine = words(text);
+    return ((state.current && state.current.memories) || []).find((m) => m.kind === "gift" && m.status === "given" && [...words(m.text)].some((w) => mine.has(w)));
+  }
+
   const formValues = (form) => {
     const out = {};
     new FormData(form).forEach((v, k) => { if (typeof v === "string") out[k] = v.trim(); });
@@ -1086,7 +1175,9 @@
     },
     async "quick-memory"(form, v) {
       await api("POST", `/api/people/${form.dataset.person}/memories`, { kind: v.kind, text: v.text });
-      toast("Note added.");
+      const dup = v.kind === "gift" && similarGift(v.text);
+      if (dup) toast(`Heads up: you already gave “${dup.text}”${dup.done_on ? ` on ${ymd(dup.done_on)}` : ""}.`, true);
+      else toast("Note added.");
       const kind = v.kind;
       await render(true);
       const sel = $(".quick select");
@@ -1095,7 +1186,7 @@
       if (inp) inp.focus();
     },
     async memory(form, v) {
-      const body = { kind: v.kind, text: v.text, detail: v.detail, status: v.status, pinned: v.pinned };
+      const body = { kind: v.kind, text: v.text, detail: v.detail, status: v.status, pinned: v.pinned, done_on: v.status === "resolved" || v.status === "given" ? v.done_on : "" };
       if (form.dataset.id) await api("PUT", `/api/memories/${form.dataset.id}`, body);
       else await api("POST", `/api/people/${form.dataset.person}/memories`, body);
       closeModal(); toast("Saved."); render(true);
@@ -1191,6 +1282,29 @@
     "new-date": (el) => dateForm(null, +el.dataset.person),
     "new-memory": (el) => memoryForm(null, +el.dataset.person),
     "add-photo": (el) => photoForm(+el.dataset.person),
+    "talked-today": async (el) => {
+      await api("POST", `/api/people/${el.dataset.person}/interactions`, { date: state.today, mode: "chat" });
+      toast("Noted: you talked today."); render(true);
+    },
+    "archive-person": async (el) => {
+      const p = state.current, on = el.dataset.v === "1";
+      if (on && !(await confirmBox(`Archive ${p.name}?`, "Their notes stay, but they leave reminders, the calendar and the relationship chart. You can restore them any time.", "Archive"))) return;
+      await api("PUT", `/api/people/${p.id}`, { archived: on });
+      toast(on ? `${p.name} was archived.` : `${p.name} was restored.`); render(true);
+    },
+    "print-brief": () => window.print(),
+    "backup-now": async () => { await api("POST", "/api/backups", {}); toast("Backup saved."); await loadBackups(); },
+    "copy-ics": async () => {
+      const inp = $("#ics-url");
+      try { await navigator.clipboard.writeText(inp.value); } catch (_) { inp.select(); document.execCommand("copy"); }
+      toast("Link copied.");
+    },
+    "reset-ics": async () => {
+      if (!(await confirmBox("Make a new calendar link?", "The old link stops working. Calendars subscribed to it will need the new one.", "Make new link"))) return;
+      const r = await api("POST", "/api/ics", {});
+      $("#ics-url").value = location.origin + r.path;
+      toast("New link created.");
+    },
     "view-photo": (el) => photoViewer(+el.dataset.i),
     "delete-photo": async (el) => {
       if (await confirmBox("Delete this photo?", "The photo file will be removed from this machine.")) {

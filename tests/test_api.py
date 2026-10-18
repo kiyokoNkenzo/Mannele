@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -214,6 +215,132 @@ class PhotoTests(unittest.TestCase):
         n_files = len(self.files())
         c.req("DELETE", f"/api/people/{p['id']}")
         self.assertEqual(len(self.files()), n_files - 2)
+
+
+VCF = (
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Yuna Sato\r\nN:Sato;Yuna;;;\r\nNICKNAME:Yun-chan\r\n"
+    "BDAY:1999-03-21\r\nNOTE:Loves karaoke\\, ramen\\nand cats\r\nORG:Kissa Neko\r\n"
+    "PHOTO;ENCODING=b;TYPE=PNG:" + "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" + "\r\n"
+    "END:VCARD\r\n"
+    "BEGIN:VCARD\r\nVERSION:2.1\r\nN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Kat=C5=8D;Ren=\r\n;;;\r\n"
+    "BDAY:--0704\r\nEND:VCARD\r\n"
+    "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Folded\r\n  Name\r\nBDAY:19800230\r\nEND:VCARD\r\n"
+)
+
+
+class FeatureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = start()
+        cls.c = Client(cls.httpd.server_address[1])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def test_migrate_adds_columns_to_old_database(self):
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY, text TEXT)")
+        server.migrate(conn)
+        server.migrate(conn)  # idempotent
+        self.assertIn("archived", {r[1] for r in conn.execute("PRAGMA table_info(people)")})
+        self.assertIn("done_on", {r[1] for r in conn.execute("PRAGMA table_info(memories)")})
+
+    def test_done_on_is_stamped_on_status_change_only(self):
+        c = self.c
+        st, p = c.req("POST", "/api/people", {"name": "Gift Person"})
+        st, m = c.req("POST", f"/api/people/{p['id']}/memories", {"kind": "gift", "text": "Scarf"})
+        self.assertEqual(m["done_on"], "")
+        st, m = c.req("PUT", f"/api/memories/{m['id']}", {"status": "given"})
+        self.assertEqual(m["done_on"], date.today().isoformat())
+        st, m = c.req("PUT", f"/api/memories/{m['id']}", {"status": "given", "done_on": "2024-12-24"})
+        self.assertEqual(m["done_on"], "2024-12-24")
+        st, m = c.req("PUT", f"/api/memories/{m['id']}", {"status": "given", "text": "Red scarf"})
+        self.assertEqual(m["done_on"], "2024-12-24")  # editing keeps the date
+        st, m = c.req("PUT", f"/api/memories/{m['id']}", {"status": "open"})
+        self.assertEqual(m["done_on"], "")
+
+    def test_archived_people_leave_reminders_and_chart(self):
+        c = self.c
+        soon = (date.today() + timedelta(days=2)).isoformat()[5:]
+        st, p = c.req("POST", "/api/people", {"name": "Moved Away", "birthday": "--" + soon, "checkin_days": 7})
+        st, other = c.req("POST", "/api/people", {"name": "Neighbour"})
+        c.req("POST", "/api/relationships", {"a_id": p["id"], "b_id": other["id"], "kind": "neighbor"})
+        st, dash = c.req("GET", "/api/dashboard")
+        self.assertTrue(any(e["person_id"] == p["id"] for e in dash["upcoming"]))
+        st, p2 = c.req("PUT", f"/api/people/{p['id']}", {"archived": True})
+        self.assertEqual(p2["archived"], 1)
+        self.assertFalse(p2["overdue"])
+        st, dash = c.req("GET", "/api/dashboard")
+        self.assertFalse(any(e["person_id"] == p["id"] for e in dash["upcoming"]))
+        self.assertFalse(any(o["id"] == p["id"] for o in dash["overdue"]))
+        st, g = c.req("GET", "/api/relationships")
+        self.assertFalse(any(x["id"] == p["id"] for x in g["people"]))
+        self.assertFalse(any(r["a_id"] == p["id"] for r in g["relationships"]))
+        st, ppl = c.req("GET", "/api/people")
+        self.assertTrue(any(x["id"] == p["id"] and x["archived"] for x in ppl))
+
+    def test_calendar_feed(self):
+        c = self.c
+        c.req("POST", "/api/people", {"name": "Cal; Person", "birthday": "1990-05-17"})
+        st, info = c.req("GET", "/api/ics")
+        anon = Client(self.httpd.server_address[1])
+        st, body = anon.req("GET", info["path"], headers={"X-Requested-With": ""})
+        self.assertEqual(st, 200)
+        text = body.decode()
+        self.assertIn("BEGIN:VCALENDAR", text)
+        self.assertIn("SUMMARY:Cal\\; Person's birthday", text)
+        self.assertIn("DTSTART;VALUE=DATE:19900517", text)
+        self.assertIn("RRULE:FREQ=YEARLY", text)
+        self.assertTrue(all(len(line.encode()) <= 75 for line in text.split("\r\n")))
+        self.assertEqual(anon.req("GET", "/ics/wrong-token.ics")[0], 404)
+        st, new = c.req("POST", "/api/ics", {})
+        self.assertNotEqual(new["path"], info["path"])
+        self.assertEqual(anon.req("GET", info["path"])[0], 404)
+
+    def test_vcard_import(self):
+        c = self.c
+        st, r = c.req("POST", "/api/import-vcard", {"text": VCF, "circle": "work"})
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r["imported"], 3, r)
+        st, ppl = c.req("GET", "/api/people")
+        by = {p["name"]: p for p in ppl}
+        y = by["Yuna Sato"]
+        self.assertEqual((y["nickname"], y["birthday"], y["circle"]), ("Yun-chan", "1999-03-21", "work"))
+        st, full = c.req("GET", f"/api/people/{y['id']}")
+        self.assertIn("Loves karaoke, ramen\nand cats", full["notes"])
+        self.assertIn("Works at Kissa Neko", full["notes"])
+        self.assertEqual(len(full["photos"]), 1)
+        self.assertEqual(by["Ren Katō"]["birthday"], "--07-04")
+        self.assertEqual(by["Folded Name"]["birthday"], "")  # invalid date dropped, not an error
+        st, again = c.req("POST", "/api/import-vcard", {"text": VCF})
+        self.assertEqual(again["imported"], 0)
+        self.assertEqual(len(again["skipped"]), 3)
+        self.assertEqual(c.req("POST", "/api/import-vcard", {"text": "hello"})[0], 400)
+
+    def test_backups(self):
+        c = self.c
+        st, r = c.req("POST", "/api/backups", {})
+        self.assertEqual(st, 200, r)
+        name = r["name"]
+        st, raw = c.req("GET", f"/api/backups/{name}")
+        self.assertEqual(st, 200)
+        import gzip
+        data = json.loads(gzip.decompress(raw))
+        self.assertEqual(data["app"], "mannele")
+        self.assertEqual(c.req("GET", "/api/backups/..%2Fmannele.db")[0], 404)
+        self.assertEqual(c.req("GET", "/api/backups/mannele.db")[0], 404)
+        old = server.BACKUP_KEEP
+        try:
+            server.BACKUP_KEEP = 2
+            for _ in range(3):
+                time.sleep(1.05)  # names carry a seconds timestamp
+                server.make_backup(manual=True)
+            self.assertEqual(len(server.list_backups()), 2)
+        finally:
+            server.BACKUP_KEEP = old
 
 
 class AuthTests(unittest.TestCase):

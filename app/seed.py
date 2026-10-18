@@ -64,7 +64,8 @@ def seed_demo():
         (yuki, "gift", "Large-print crossword book", "open"),
     ]
     for pid, kind, text, status in mems:
-        vals = v_memory(dict(kind=kind, text=text, status=status))
+        done_on = {"given": _ago(295), "resolved": _ago(40)}.get(status, "")
+        vals = v_memory(dict(kind=kind, text=text, status=status, done_on=done_on))
         vals["person_id"] = pid
         insert("memories", vals)
 
